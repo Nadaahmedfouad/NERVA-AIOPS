@@ -1,0 +1,10 @@
+// WHY: represents the result of an executed remediation.
+// PRODUCER LATER: M4 remediation executor
+// CONSUMERS: M1 validation / shared core / M5 memory
+// IMPORTANT: the matching .json file is the machine-readable version.
+{
+  "action_id": "ACT-001",
+  "incident_id": "INC-001",
+  "action": "ROLLBACK",
+  "status": "SUCCESS"
+}

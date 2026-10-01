@@ -1,0 +1,41 @@
+# WHY THIS FILE EXISTS
+# ====================
+# Git should track SOURCE CODE, not machine-specific or generated files.
+# .gitignore prevents unnecessary files from being pushed to GitHub.
+
+# Python-generated cache files.
+__pycache__/
+*.py[cod]
+
+# Local virtual environments.
+.venv/
+venv/
+
+# Local environment/secrets.
+# Never push your real .env to GitHub.
+.env
+.env.*
+!.env.example
+
+# pytest temporary files.
+.pytest_cache/
+
+# Coverage reports.
+.coverage
+htmlcov/
+
+# Python/package build outputs.
+dist/
+build/
+
+# Runtime logs.
+*.log
+
+# OS / IDE metadata.
+.DS_Store
+.idea/
+.vscode/
+
+# Generated experiment data.
+# Keep reproducible scripts in Git; large generated outputs do not always belong there.
+data/generated/

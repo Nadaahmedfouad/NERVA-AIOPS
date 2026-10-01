@@ -1,0 +1,22 @@
+// WHY: lets M4 test SCALE decisions before M6 real FinOps service is ready.
+// PRODUCER LATER: M6
+// CONSUMER: M4
+// IMPORTANT: the matching .json file is the machine-readable version.
+{
+  "service": "payment-service",
+  "current_replicas": 3,
+  "current_cpu_request_m": 1000,
+  "observed_cpu_pct": 72,
+  "temporary_scale_options": [
+    {
+      "replicas": 4,
+      "estimated_cost_delta": 0.3,
+      "risk": "MEDIUM"
+    },
+    {
+      "replicas": 6,
+      "estimated_cost_delta": 0.75,
+      "risk": "LOW"
+    }
+  ]
+}

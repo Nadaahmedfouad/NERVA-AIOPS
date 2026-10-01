@@ -1,0 +1,51 @@
+# WHY THIS FILE EXISTS
+# ====================
+# This is a very small CI pipeline.
+#
+# CI = Continuous Integration.
+# Whenever we push to develop/main or open a Pull Request,
+# GitHub automatically checks basic repository correctness.
+#
+# Right now it only validates JSON mocks.
+# Later you can add:
+# - Python dependency installation
+# - pytest
+# - contract tests
+# - Docker image build
+# - security/lint checks
+#
+# If your team decides to use Jenkins as the main NTI CI/CD tool,
+# this file can remain as a lightweight GitHub check or be replaced.
+
+name: CI
+
+# WHEN should the pipeline run?
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+jobs:
+  basic-checks:
+
+    # GitHub creates a temporary Ubuntu VM for this job.
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Download our repository into the temporary runner.
+      - uses: actions/checkout@v4
+
+      # WHY validate mocks?
+      # A broken JSON file could stop a teammate from developing against mocks.
+      - name: Validate JSON mocks
+        run: |
+          python - <<'PY'
+          import json, glob
+
+          for path in glob.glob('mocks/*.json'):
+              with open(path) as f:
+                  json.load(f)
+
+              print('valid:', path)
+          PY

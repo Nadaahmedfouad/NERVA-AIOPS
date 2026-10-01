@@ -1,0 +1,6 @@
+{
+  "action_id": "ACT-001",
+  "incident_id": "INC-001",
+  "action": "ROLLBACK",
+  "status": "SUCCESS"
+}
