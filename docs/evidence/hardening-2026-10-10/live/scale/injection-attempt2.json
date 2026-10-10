@@ -1,0 +1,1 @@
+{"attempt":2,"spike":"pod hardening-traffic-spike2, 150 RPS for 1800 s, created at 2026-10-10T20:24:47.208Z; base generator hardening-traffic-base2 (10 RPS) unchanged; M4 settle delay 60 s; M2 reference with gated load change; no incident opened at traffic onset 20:20:01"}

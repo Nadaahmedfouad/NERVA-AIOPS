@@ -1,0 +1,28 @@
+{
+ "digest": "3081acd59c3ff852146aa0b15b4adfc17e63d0160db229e75a5eff350a3197ab",
+ "proposal_state": {
+  "created_at": "2026-10-10T20:26:18.119173+00:00",
+  "valid_timestamp": true,
+  "ttl_seconds": 300.0,
+  "expires_at": "2026-10-10T20:31:18.119173+00:00",
+  "expired": false
+ },
+ "without_operator_token": [
+  401,
+  {
+   "detail": "A valid operator token is required for decisions"
+  }
+ ],
+ "approved": [
+  200,
+  {
+   "action_id": "ACT-ba0f5e54dbd54978a3d52c10f3196635",
+   "incident_id": "INC-20261010-202515-payment-service",
+   "action": "SCALE",
+   "status": "SUCCESS",
+   "started_at": "2026-10-10T20:26:55.599839Z",
+   "completed_at": "2026-10-10T20:27:04.485502Z"
+  }
+ ],
+ "approved_at": "2026-10-10T20:27:04.612776+00:00"
+}

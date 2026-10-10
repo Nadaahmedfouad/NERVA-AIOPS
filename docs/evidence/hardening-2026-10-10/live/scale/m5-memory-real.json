@@ -1,0 +1,134 @@
+[
+ 200,
+ {
+  "record": {
+   "context": {
+    "action_result": {
+     "action": "SCALE",
+     "action_id": "ACT-ba0f5e54dbd54978a3d52c10f3196635",
+     "completed_at": "2026-10-10T20:27:04.485502Z",
+     "incident_id": "INC-20261010-202515-payment-service",
+     "started_at": "2026-10-10T20:26:55.599839Z",
+     "status": "SUCCESS"
+    },
+    "anomaly": {
+     "anomaly_id": "ANO-23646ac1",
+     "features": {
+      "cpu": 0.13083747506234078,
+      "http_5xx_rate": 0.0,
+      "latency_p95_ms": 400.46748173733243,
+      "request_rate": 125.72432241567155
+     },
+     "model": "z_score_per_service",
+     "score": 0.9934,
+     "service": "payment-service",
+     "severity": "high",
+     "timestamp": "2026-10-10T20:27:46.647000Z"
+    },
+    "cost_impact": null,
+    "decision": {
+     "approval_required": true,
+     "confidence": 1.0,
+     "incident_id": "INC-20261010-202515-payment-service",
+     "parameters": {
+      "replicas": 8
+     },
+     "reason": "Traffic spike detected and a safe scale option is available",
+     "recommended_action": "SCALE",
+     "risk": "LOW",
+     "target": "payment-service"
+    },
+    "deployment_event": {
+     "commit_sha": "baseline",
+     "event_id": "DEP-11",
+     "new_version": "v1",
+     "old_version": "v1",
+     "pipeline_id": "bootstrap",
+     "service": "payment-service",
+     "status": "SUCCESS",
+     "timestamp": "2026-10-10T14:43:59Z"
+    },
+    "finops_context": {
+     "current_cpu_request_m": 100,
+     "current_replicas": 1,
+     "observed_cpu_pct": 100.0,
+     "service": "payment-service",
+     "temporary_scale_options": [
+      {
+       "estimated_cost_delta": 0.0656,
+       "replicas": 2,
+       "risk": "HIGH"
+      },
+      {
+       "estimated_cost_delta": 0.4594,
+       "replicas": 8,
+       "risk": "MEDIUM"
+      }
+     ]
+    },
+    "incident": {
+     "affected_services": [
+      "payment-service"
+     ],
+     "anomaly_ids": [
+      "ANO-20d7a410",
+      "ANO-b1fac7b0",
+      "ANO-e022cb7d",
+      "ANO-23646ac1"
+     ],
+     "incident_id": "INC-20261010-202515-payment-service",
+     "severity": "high",
+     "started_at": "2026-10-10T20:25:15.528000Z",
+     "status": "RESOLVED"
+    },
+    "mttd_seconds": null,
+    "mttr_seconds": null,
+    "rca": {
+     "affected_component": "payment-service:v1",
+     "confidence": 1.0,
+     "evidence": [
+      "Request rate increased significantly",
+      "Request rate exceeds measured healthy baseline 10.00 requests/sec by at least 1.5x",
+      "CPU utilization increased significantly"
+     ],
+     "incident_id": "INC-20261010-202515-payment-service",
+     "root_cause": "traffic_spike"
+    },
+    "recovery_result": {
+     "after": {
+      "http_5xx_rate": 0.0,
+      "latency_p95_ms": 9.505258730130173
+     },
+     "before": {
+      "http_5xx_rate": 0.0,
+      "latency_p95_ms": 2377.864864864865
+     },
+     "incident_id": "INC-20261010-202515-payment-service",
+     "recovered": true,
+     "recovery_time_seconds": 92.530494,
+     "slo_restored": true
+    },
+    "slo_impact": null
+   },
+   "memory": {
+    "action": "SCALE",
+    "action_success": true,
+    "incident_id": "INC-20261010-202515-payment-service",
+    "incident_type": "traffic_spike",
+    "recovered": true,
+    "root_cause": "traffic_spike",
+    "service": "payment-service",
+    "tags": [
+     "used:evidence:real",
+     "used:finops:real",
+     "used:rca:real",
+     "used:recovery:real",
+     "used:remediation:real"
+    ]
+   },
+   "resolved": true,
+   "source": "real",
+   "stored_at": "2026-10-10T20:28:37.919599+00:00"
+  }
+ }
+]

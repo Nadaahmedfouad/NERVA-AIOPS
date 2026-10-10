@@ -1,0 +1,51 @@
+[
+ 200,
+ {
+  "status": "ok",
+  "source": "real",
+  "mode": "deterministic_grounded",
+  "answer": "Recorded action success: true. Recorded recovery: true. Action execution and service recovery are separate outcomes. Recovery measurements: {'after': {'http_5xx_rate': 0.0, 'latency_p95_ms': 9.505258730130173}, 'before': {'http_5xx_rate': 0.0, 'latency_p95_ms': 2377.864864864865}, 'incident_id': 'INC-20261010-202515-payment-service', 'recovered': True, 'recovery_time_seconds': 92.530494, 'slo_restored': True}.",
+  "citations": [
+   {
+    "incident_id": "INC-20261010-202515-payment-service",
+    "source": "real",
+    "field": "memory.action_success",
+    "value": true
+   },
+   {
+    "incident_id": "INC-20261010-202515-payment-service",
+    "source": "real",
+    "field": "memory.recovered",
+    "value": true
+   },
+   {
+    "incident_id": "INC-20261010-202515-payment-service",
+    "source": "real",
+    "field": "context.recovery_result",
+    "value": {
+     "after": {
+      "http_5xx_rate": 0.0,
+      "latency_p95_ms": 9.505258730130173
+     },
+     "before": {
+      "http_5xx_rate": 0.0,
+      "latency_p95_ms": 2377.864864864865
+     },
+     "incident_id": "INC-20261010-202515-payment-service",
+     "recovered": true,
+     "recovery_time_seconds": 92.530494,
+     "slo_restored": true
+    }
+   }
+  ],
+  "similar_incidents": [],
+  "supported_questions": [
+   "What happened?",
+   "What changed before the incident?",
+   "What is the root cause?",
+   "Have we seen this before?",
+   "What action was taken?",
+   "Did it work?"
+  ]
+ }
+]

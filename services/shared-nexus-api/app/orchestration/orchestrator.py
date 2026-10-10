@@ -336,7 +336,10 @@ def _commit_diagnosis(attempt, gathered):
             incident["recovery_scenario"] = gathered["scenario"]
         proposal = DecisionProposal(incident_id=incident_id, recommended_action=result.action.value,
                                     target=attempt.service, parameters=gathered["parameters"], confidence=result.confidence,
-                                    risk="MEDIUM" if result.action == DecisionAction.ROLLBACK else "LOW" if result.action == DecisionAction.SCALE else "HIGH",
+                                    # A scale proposal carries the risk M6 assessed for the chosen option.
+                                    risk=("MEDIUM" if result.action == DecisionAction.ROLLBACK
+                                          else result.scale_option.get("risk", "HIGH") if result.action == DecisionAction.SCALE
+                                          else "HIGH"),
                                     reason=result.reason, approval_required=result.approval_required)
         incident.update(root_cause=rca["root_cause"], proposed_action=result.action.value,
                         scale_option=result.scale_option, _proposal=proposal.model_dump(mode="json"),

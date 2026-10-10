@@ -440,3 +440,22 @@ def test_kubernetes_completion_waits_for_rollout_and_uses_runtime_path(monkeypat
     assert run.call_args_list[1].args[0][:4] == ["fixture-kubectl", "--context", "fixture-cluster", "scale"]
     assert run.call_args_list[2].args[0][3:5] == ["rollout", "status"]
     assert all(call.kwargs["timeout"] > 0 for call in run.call_args_list)
+
+
+def test_scale_proposal_carries_the_risk_m6_assessed_for_the_chosen_option(real_data_clients, monkeypatch):
+    """Live finding 2026-10-10: the only safe option was MEDIUM risk but the proposal said LOW."""
+    client, fixture = real_data_clients
+    fixture.cause = "traffic_spike"
+    original_get = fixture.get
+
+    def medium_only(url, params, timeout):
+        response = original_get(url, params, timeout)
+        data = response.json()
+        data["temporary_scale_options"] = [{"replicas": 4, "estimated_cost_delta": 0.3, "risk": "MEDIUM"}]
+        return fixture.response(data)
+
+    monkeypatch.setattr(requests, "get", medium_only)
+    identifier = create(client)
+    assert client.post(f"/internal/decisions/build/{identifier}").status_code == 200
+    proposal = client.get(f"/api/incidents/{identifier}/proposal").json()
+    assert proposal["parameters"] == {"replicas": 4} and proposal["risk"] == "MEDIUM"

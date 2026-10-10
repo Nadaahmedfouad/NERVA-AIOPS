@@ -1,0 +1,12 @@
+[
+ 200,
+ {
+  "run_id": "RUN-HARDENING-SCALE-20261010",
+  "scenario": "traffic_spike",
+  "injection_time": "2026-10-10T20:24:47.208000Z",
+  "injection_evidence": "spike generator pod created at 20:24:47.208Z (live/scale/injection-attempt2.json)",
+  "registered_by": "hardening-drill-operator",
+  "expected_root_cause": "traffic_spike",
+  "rca_correct": true
+ }
+]
