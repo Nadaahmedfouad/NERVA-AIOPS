@@ -1,0 +1,114 @@
+[
+ 200,
+ {
+  "record": {
+   "context": {
+    "action_result": {
+     "action": "ROLLBACK",
+     "action_id": "ACT-42f5ae8e34ab4bb2bc7a5c93c628aa44",
+     "completed_at": "2026-10-10T19:36:13.782915Z",
+     "incident_id": "INC-20261010-193515-payment-service",
+     "started_at": "2026-10-10T19:35:58.130981Z",
+     "status": "SUCCESS"
+    },
+    "anomaly": {
+     "anomaly_id": "ANO-da84c261",
+     "features": {
+      "cpu": 0.016955248379985466,
+      "http_5xx_rate": 0.09709537166738298,
+      "latency_p95_ms": 737.5,
+      "request_rate": 6.879121178595004
+     },
+     "model": "z_score_per_service",
+     "score": 0.9974,
+     "service": "payment-service",
+     "severity": "high",
+     "timestamp": "2026-10-10T19:35:15.745000Z"
+    },
+    "cost_impact": null,
+    "decision": {
+     "approval_required": true,
+     "confidence": 0.9,
+     "incident_id": "INC-20261010-193515-payment-service",
+     "parameters": {
+      "from_version": "v2",
+      "to_version": "v1"
+     },
+     "reason": "Faulty deployment detected",
+     "recommended_action": "ROLLBACK",
+     "risk": "MEDIUM",
+     "target": "payment-service"
+    },
+    "deployment_event": {
+     "commit_sha": "drill-faulty-v2",
+     "event_id": "DEP-10",
+     "new_version": "v2",
+     "old_version": "v1",
+     "pipeline_id": "hardening-c01ba3-rollback-drill",
+     "service": "payment-service",
+     "status": "SUCCESS",
+     "timestamp": "2026-10-10T19:34:18Z"
+    },
+    "finops_context": null,
+    "incident": {
+     "affected_services": [
+      "payment-service"
+     ],
+     "anomaly_ids": [
+      "ANO-da84c261"
+     ],
+     "incident_id": "INC-20261010-193515-payment-service",
+     "severity": "high",
+     "started_at": "2026-10-10T19:35:15.745000Z",
+     "status": "RESOLVED"
+    },
+    "mttd_seconds": null,
+    "mttr_seconds": null,
+    "rca": {
+     "affected_component": "payment-service:v2",
+     "confidence": 0.9,
+     "evidence": [
+      "payment-service:v2 deployed 57 seconds before anomaly",
+      "P95 latency increased after deployment",
+      "HTTP 5xx increased"
+     ],
+     "incident_id": "INC-20261010-193515-payment-service",
+     "root_cause": "faulty_deployment"
+    },
+    "recovery_result": {
+     "after": {
+      "http_5xx_rate": 0.0,
+      "latency_p95_ms": 9.521017046023825
+     },
+     "before": {
+      "http_5xx_rate": 0.09048572278492432,
+      "latency_p95_ms": 737.5
+     },
+     "incident_id": "INC-20261010-193515-payment-service",
+     "recovered": true,
+     "recovery_time_seconds": 94.386683,
+     "slo_restored": true
+    },
+    "slo_impact": null
+   },
+   "memory": {
+    "action": "ROLLBACK",
+    "action_success": true,
+    "incident_id": "INC-20261010-193515-payment-service",
+    "incident_type": "faulty_deployment",
+    "recovered": true,
+    "root_cause": "faulty_deployment",
+    "service": "payment-service",
+    "tags": [
+     "used:evidence:real",
+     "used:rca:real",
+     "used:recovery:real",
+     "used:remediation:real"
+    ]
+   },
+   "resolved": true,
+   "source": "real",
+   "stored_at": "2026-10-10T19:38:50.990152+00:00"
+  }
+ }
+]

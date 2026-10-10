@@ -52,6 +52,11 @@ DEFAULT_CONTEXT_FEATURES = ("replica_count",)
 # exceeds the capacity of the replicas present still scores, as before.
 DEFAULT_LOAD_FEATURES = ("request_rate",)
 REPLICA_FEATURE = "replica_count"
+# A load feature's relative change only matters when the load itself is above
+# normal. Observed live (docs/evidence/hardening-2026-10-10/live/onset-alert):
+# traffic starting from idle (~0 -> 3 req/s on 8 replicas) is a +605% change,
+# 840 wobbles, although nothing is degraded.
+LOAD_CHANGE_FEATURES = {"request_rate": "request_rate_change"}
 
 
 def load_columns(names: Sequence[str] = DEFAULT_LOAD_FEATURES) -> tuple[int, ...]:
@@ -298,6 +303,11 @@ class ZScoreDetector:
             for column in self.load_columns:
                 # Load below normal is not a health problem; only excess load scores.
                 out[usable, column] = np.maximum(matrix[usable, column] - mean[column], 0.0) / spread[column]
+                change = LOAD_CHANGE_FEATURES.get(FEATURE_ORDER[column]) if matrix.shape[1] == len(FEATURE_ORDER) else None
+                if change is not None:
+                    gated = FEATURE_ORDER.index(change)
+                    quiet = matrix[usable, column] <= mean[column]
+                    out[usable, gated] = np.where(quiet, 0.0, out[usable, gated])
             for column in self._ignored(matrix.shape[1]):
                 out[:, column] = 0.0          # recorded elsewhere, never scored
         return out

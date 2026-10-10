@@ -1,0 +1,33 @@
+{
+ "event": {
+  "anomaly_id": "ANO-db177c91",
+  "timestamp": "2026-10-10T20:09:59.065000Z",
+  "service": "payment-service",
+  "score": 0.9553,
+  "severity": "medium",
+  "model": "z_score_per_service",
+  "features": {
+   "request_rate": 10.000222227160604,
+   "latency_p95_ms": 9.5,
+   "http_5xx_rate": 0.0,
+   "cpu": 0.07911286917486429
+  }
+ },
+ "linked": [
+  200,
+  {
+   "anomaly_id": "ANO-db177c91",
+   "timestamp": "2026-10-10T20:09:59.065000Z",
+   "service": "payment-service",
+   "score": 0.9553,
+   "severity": "medium",
+   "model": "z_score_per_service",
+   "features": {
+    "request_rate": 10.000222227160604,
+    "latency_p95_ms": 9.5,
+    "http_5xx_rate": 0.0,
+    "cpu": 0.07911286917486429
+   }
+  }
+ ]
+}

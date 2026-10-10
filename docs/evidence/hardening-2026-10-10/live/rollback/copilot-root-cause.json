@@ -1,0 +1,36 @@
+[
+ 200,
+ {
+  "status": "ok",
+  "source": "real",
+  "mode": "deterministic_grounded",
+  "answer": "Recorded root cause: faulty_deployment. Recorded evidence: ['payment-service:v2 deployed 57 seconds before anomaly', 'P95 latency increased after deployment', 'HTTP 5xx increased'].",
+  "citations": [
+   {
+    "incident_id": "INC-20261010-193515-payment-service",
+    "source": "real",
+    "field": "memory.root_cause",
+    "value": "faulty_deployment"
+   },
+   {
+    "incident_id": "INC-20261010-193515-payment-service",
+    "source": "real",
+    "field": "context.rca.evidence",
+    "value": [
+     "payment-service:v2 deployed 57 seconds before anomaly",
+     "P95 latency increased after deployment",
+     "HTTP 5xx increased"
+    ]
+   }
+  ],
+  "similar_incidents": [],
+  "supported_questions": [
+   "What happened?",
+   "What changed before the incident?",
+   "What is the root cause?",
+   "Have we seen this before?",
+   "What action was taken?",
+   "Did it work?"
+  ]
+ }
+]

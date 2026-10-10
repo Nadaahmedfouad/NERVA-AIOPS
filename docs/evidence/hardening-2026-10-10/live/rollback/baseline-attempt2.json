@@ -1,0 +1,51 @@
+[
+ 200,
+ {
+  "service": "payment-service",
+  "version": "v1",
+  "measured_at": "2026-10-10T19:34:03.992558Z",
+  "window_start": "2026-10-10T19:32:33.242123Z",
+  "window_end": "2026-10-10T19:33:48.242123Z",
+  "sample_count": 6,
+  "request_rate": {
+   "minimum": 9.845164050179472,
+   "maximum": 10.13458485917314,
+   "average": 9.956384316801929,
+   "p95": 10.106552611449839
+  },
+  "latency_p95_ms": {
+   "minimum": 9.499999999999998,
+   "maximum": 9.5,
+   "average": 9.5,
+   "p95": 9.5
+  },
+  "http_5xx_rate": {
+   "minimum": 0.0,
+   "maximum": 0.0,
+   "average": 0.0,
+   "p95": 0.0
+  },
+  "cpu": {
+   "minimum": 0.015667375348589745,
+   "maximum": 0.01766885831935567,
+   "average": 0.01671438189282836,
+   "p95": 0.01761352659423336
+  },
+  "memory": {
+   "minimum": 0.08728885650634766,
+   "maximum": 0.08774662017822266,
+   "average": 0.08764998118082683,
+   "p95": 0.08774662017822266
+  },
+  "replica_count": {
+   "minimum": 8.0,
+   "maximum": 8.0,
+   "average": 8.0,
+   "p95": 8.0
+  },
+  "thresholds": {
+   "latency_p95_ms_max": 11.875,
+   "http_5xx_rate_max": 0.01
+  }
+ }
+]

@@ -121,6 +121,8 @@ services:
       NEXUS_INGEST_TOKEN: ${NEXUS_INGEST_TOKEN:?Set NEXUS_INGEST_TOKEN}
       NEXUS_SERVICES_CONFIG: /app/config/services.yaml
       M4_WORKER_CONCURRENCY: "4"
+      # Diagnose only once M1's one-minute windows show the fault fully (live finding 2026-10-10).
+      M4_AUTO_BUILD_DELAY_SECONDS: "60"
       M4_PROPOSAL_TTL_SECONDS: "300"
       # Compose verifies real data integration; actual actions use the isolated Kubernetes stack.
       REMEDIATION_BACKEND: mock

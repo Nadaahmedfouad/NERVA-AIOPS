@@ -1,0 +1,1 @@
+{"injection_command":"kubectl patch deployment payment-service: image nexus/payment-service:v2, env VERSION=v2, label version=v2","patch_started":"2026-10-10T19:25:06.427Z","patch_accepted":"2026-10-10T19:25:07.412Z"}

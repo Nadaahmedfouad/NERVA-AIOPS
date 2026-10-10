@@ -107,6 +107,9 @@ spec:
               value: /app/config/services.yaml
             - name: M4_WORKER_CONCURRENCY
               value: "4"
+            # Diagnose only once M1's one-minute windows show the fault fully.
+            - name: M4_AUTO_BUILD_DELAY_SECONDS
+              value: "60"
             - name: M5_MEMORY_BASE_URL
               value: http://incident-memory:8005
             - name: M4_AUTO_VALIDATE_RECOVERY

@@ -1,0 +1,108 @@
+{
+ "service": "payment-service",
+ "version": "v1",
+ "start": "2026-10-10T19:19:45Z",
+ "end": "2026-10-10T19:21:45Z",
+ "step_seconds": 15,
+ "points": [
+  {
+   "timestamp": "2026-10-10T19:19:45Z",
+   "metrics": {
+    "cpu": 0.0061115691708404935,
+    "memory": 0.08747482299804688,
+    "request_rate": 0.9111792644613107,
+    "latency_p95_ms": 9.499999999999998,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:20:00Z",
+   "metrics": {
+    "cpu": 0.008333637049054236,
+    "memory": 0.08747482299804688,
+    "request_rate": 4.3334928458603486,
+    "latency_p95_ms": 9.500000000000002,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:20:15Z",
+   "metrics": {
+    "cpu": 0.010278551912570353,
+    "memory": 0.08747482299804688,
+    "request_rate": 7.4672301677402135,
+    "latency_p95_ms": 9.5,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:20:30Z",
+   "metrics": {
+    "cpu": 0.01161143704866862,
+    "memory": 0.08747482299804688,
+    "request_rate": 9.933621738754864,
+    "latency_p95_ms": 9.500000000000002,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:20:45Z",
+   "metrics": {
+    "cpu": 0.011667419805270588,
+    "memory": 0.08747482299804688,
+    "request_rate": 9.978423748568465,
+    "latency_p95_ms": 9.5,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:21:00Z",
+   "metrics": {
+    "cpu": 0.013111567920220469,
+    "memory": 0.08747482299804688,
+    "request_rate": 10.155921497054255,
+    "latency_p95_ms": 9.520833044985444,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:21:15Z",
+   "metrics": {
+    "cpu": 0.012778787735700257,
+    "memory": 0.08747482299804688,
+    "request_rate": 10.267468705892707,
+    "latency_p95_ms": 9.520607597802346,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:21:30Z",
+   "metrics": {
+    "cpu": 0.012722666685104259,
+    "memory": 0.08747482299804688,
+    "request_rate": 10.044785693114457,
+    "latency_p95_ms": 9.521064522630633,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  },
+  {
+   "timestamp": "2026-10-10T19:21:45Z",
+   "metrics": {
+    "cpu": 0.011111824739042687,
+    "memory": 0.08747482299804688,
+    "request_rate": 9.95619658607704,
+    "latency_p95_ms": 9.5,
+    "http_5xx_rate": 0.0,
+    "replica_count": 8
+   }
+  }
+ ]
+}

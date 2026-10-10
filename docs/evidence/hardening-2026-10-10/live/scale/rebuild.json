@@ -1,0 +1,10 @@
+[
+ 503,
+ {
+  "detail": {
+   "category": "dependency_error",
+   "message": "M3 RCA is unavailable",
+   "retryable": true
+  }
+ }
+]

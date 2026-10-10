@@ -1,0 +1,278 @@
+{
+ "incident": {
+  "incident_id": "INC-20261010-193515-payment-service",
+  "started_at": "2026-10-10T19:35:15.745000Z",
+  "status": "AWAITING_APPROVAL",
+  "severity": "high",
+  "affected_services": [
+   "payment-service"
+  ],
+  "anomaly_ids": [
+   "ANO-da84c261"
+  ]
+ },
+ "anomaly": {
+  "anomaly_id": "ANO-da84c261",
+  "timestamp": "2026-10-10T19:35:15.745000Z",
+  "service": "payment-service",
+  "score": 0.9974,
+  "severity": "high",
+  "model": "z_score_per_service",
+  "features": {
+   "request_rate": 6.879121178595004,
+   "latency_p95_ms": 737.5,
+   "http_5xx_rate": 0.09709537166738298,
+   "cpu": 0.016955248379985466
+  }
+ },
+ "anomalies": [
+  {
+   "anomaly_id": "ANO-da84c261",
+   "timestamp": "2026-10-10T19:35:15.745000Z",
+   "service": "payment-service",
+   "score": 0.9974,
+   "severity": "high",
+   "model": "z_score_per_service",
+   "features": {
+    "request_rate": 6.879121178595004,
+    "latency_p95_ms": 737.5,
+    "http_5xx_rate": 0.09709537166738298,
+    "cpu": 0.016955248379985466
+   }
+  }
+ ],
+ "rca": {
+  "incident_id": "INC-20261010-193515-payment-service",
+  "root_cause": "faulty_deployment",
+  "affected_component": "payment-service:v2",
+  "confidence": 0.9,
+  "evidence": [
+   "payment-service:v2 deployed 57 seconds before anomaly",
+   "P95 latency increased after deployment",
+   "HTTP 5xx increased"
+  ]
+ },
+ "decision": {
+  "incident_id": "INC-20261010-193515-payment-service",
+  "recommended_action": "ROLLBACK",
+  "target": "payment-service",
+  "parameters": {
+   "from_version": "v2",
+   "to_version": "v1"
+  },
+  "confidence": 0.9,
+  "risk": "MEDIUM",
+  "reason": "Faulty deployment detected",
+  "approval_required": true
+ },
+ "proposal_digest": "39f943a65317e293701d1bc1cd5af9039718c40878bf3a72e8c0115f7650dd55",
+ "proposal_state": {
+  "created_at": "2026-10-10T19:35:19.077420+00:00",
+  "valid_timestamp": true,
+  "ttl_seconds": 300.0,
+  "expires_at": "2026-10-10T19:40:19.077420+00:00",
+  "expired": false
+ },
+ "action_result": null,
+ "recovery_result": null,
+ "recovery_validation": null,
+ "finops_context": null,
+ "deployment_event": {
+  "event_id": "DEP-10",
+  "service": "payment-service",
+  "old_version": "v1",
+  "new_version": "v2",
+  "commit_sha": "drill-faulty-v2",
+  "pipeline_id": "hardening-c01ba3-rollback-drill",
+  "timestamp": "2026-10-10T19:34:18Z",
+  "status": "SUCCESS"
+ },
+ "evidence": {
+  "incident_id": "INC-20261010-193515-payment-service",
+  "service": "payment-service",
+  "scenario": "bad_deployment",
+  "captured_at": "2026-10-10T19:35:17.322375Z",
+  "before": {
+   "timestamp": "2026-10-10T19:35:17.322000Z",
+   "service": "payment-service",
+   "version": "v2",
+   "metrics": {
+    "cpu": 0.017149106582479406,
+    "memory": 0.08635711669921875,
+    "request_rate": 6.977782567564859,
+    "latency_p95_ms": 737.5,
+    "http_5xx_rate": 0.09048572278492432,
+    "replica_count": 8
+   }
+  },
+  "selected_logs": [
+   "2026-10-10T19:35:14.997064+00:00 {\"timestamp\":\"2026-10-10T19:35:14.996588+00:00\",\"level\":\"ERROR\",\"service\":\"payment-service\",\"version\":\"v2\",\"environment\":\"development\",\"message\":\"simulated payment failure\"}",
+   "2026-10-10T19:35:14.998467+00:00 {\"timestamp\":\"2026-10-10T19:35:14.998102+00:00\",\"level\":\"INFO\",\"service\":\"payment-service\",\"version\":\"v2\",\"environment\":\"development\",\"message\":\"request completed\",\"method\":\"POST\",\"route\":\"/pay\",\"status_code\":500,\"duration_ms\":602.48,\"pod\":\"payment-service-67f6578c56-2z72l\",\"namespace\":\"nexus-demo\"}",
+   "2026-10-10T19:35:14.998602+00:00 INFO:     10.244.1.50:45788 - \"POST /pay HTTP/1.1\" 500 Internal Server Error",
+   "2026-10-10T19:35:16.995828+00:00 {\"timestamp\":\"2026-10-10T19:35:16.995504+00:00\",\"level\":\"ERROR\",\"service\":\"payment-service\",\"version\":\"v2\",\"environment\":\"development\",\"message\":\"simulated payment failure\"}",
+   "2026-10-10T19:35:16.996841+00:00 {\"timestamp\":\"2026-10-10T19:35:16.996612+00:00\",\"level\":\"INFO\",\"service\":\"payment-service\",\"version\":\"v2\",\"environment\":\"development\",\"message\":\"request completed\",\"method\":\"POST\",\"route\":\"/pay\",\"status_code\":500,\"duration_ms\":602.0,\"pod\":\"payment-service-67f6578c56-2z72l\",\"namespace\":\"nexus-demo\"}",
+   "2026-10-10T19:35:16.996922+00:00 INFO:     10.244.1.50:45960 - \"POST /pay HTTP/1.1\" 500 Internal Server Error"
+  ],
+  "kubernetes": {
+   "service": "payment-service",
+   "namespace": "nexus-demo",
+   "desired_replicas": 8,
+   "ready_replicas": 8,
+   "pod_restarts": 0,
+   "version": "v2",
+   "service_health": "ok",
+   "events": [
+    "SuccessfulCreate: Created pod: payment-service-697f474887-2jgw6",
+    "SuccessfulCreate: Created pod: payment-service-697f474887-htvfd",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-2jgw6",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-vbmnn",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-rnd94",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-r8dfz",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-76jw5",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-pjsfc",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-jf89v",
+    "SuccessfulDelete: Deleted pod: payment-service-697f474887-htvfd",
+    "ScalingReplicaSet: Scaled up replica set payment-service-697f474887 from 0 to 2",
+    "ScalingReplicaSet: Scaled down replica set payment-service-6565887bd8 from 8 to 6",
+    "ScalingReplicaSet: Scaled up replica set payment-service-697f474887 from 2 to 4",
+    "ScalingReplicaSet: Scaled down replica set payment-service-6565887bd8 from 6 to 5",
+    "ScalingReplicaSet: Scaled up replica set payment-service-697f474887 from 4 to 5",
+    "ScalingReplicaSet: Scaled down replica set payment-service-6565887bd8 from 5 to 4",
+    "ScalingReplicaSet: Scaled up replica set payment-service-697f474887 from 5 to 6",
+    "ScalingReplicaSet: Scaled down replica set payment-service-6565887bd8 from 4 to 3",
+    "ScalingReplicaSet: Scaled up replica set payment-service-697f474887 from 6 to 7",
+    "ScalingReplicaSet: (combined from similar events): Scaled up replica set payment-service-67f6578c56 from 0 to 2"
+   ]
+  },
+  "deployment_event": {
+   "event_id": "DEP-10",
+   "service": "payment-service",
+   "old_version": "v1",
+   "new_version": "v2",
+   "commit_sha": "drill-faulty-v2",
+   "pipeline_id": "hardening-c01ba3-rollback-drill",
+   "timestamp": "2026-10-10T19:34:18Z",
+   "status": "SUCCESS"
+  },
+  "provider_errors": [],
+  "baseline": {
+   "service": "payment-service",
+   "version": "v1",
+   "measured_at": "2026-10-10T19:34:03.992558Z",
+   "window_start": "2026-10-10T19:32:33.242123Z",
+   "window_end": "2026-10-10T19:33:48.242123Z",
+   "sample_count": 6,
+   "request_rate": {
+    "minimum": 9.845164050179472,
+    "maximum": 10.13458485917314,
+    "average": 9.956384316801929,
+    "p95": 10.106552611449839
+   },
+   "latency_p95_ms": {
+    "minimum": 9.499999999999998,
+    "maximum": 9.5,
+    "average": 9.5,
+    "p95": 9.5
+   },
+   "http_5xx_rate": {
+    "minimum": 0.0,
+    "maximum": 0.0,
+    "average": 0.0,
+    "p95": 0.0
+   },
+   "cpu": {
+    "minimum": 0.015667375348589745,
+    "maximum": 0.01766885831935567,
+    "average": 0.01671438189282836,
+    "p95": 0.01761352659423336
+   },
+   "memory": {
+    "minimum": 0.08728885650634766,
+    "maximum": 0.08774662017822266,
+    "average": 0.08764998118082683,
+    "p95": 0.08774662017822266
+   },
+   "replica_count": {
+    "minimum": 8.0,
+    "maximum": 8.0,
+    "average": 8.0,
+    "p95": 8.0
+   },
+   "thresholds": {
+    "latency_p95_ms_max": 11.875,
+    "http_5xx_rate_max": 0.01
+   }
+  }
+ },
+ "source": "real",
+ "provider_modes": {
+  "rca": "real",
+  "evidence": "real"
+ },
+ "provenance": {
+  "source": "real",
+  "modes": {
+   "rca": "real",
+   "evidence": "real"
+  },
+  "used": {
+   "rca": [
+    "real"
+   ],
+   "evidence": [
+    "real"
+   ]
+  },
+  "unused": [
+   "finops",
+   "remediation",
+   "recovery"
+  ],
+  "configured_now": {
+   "rca": "real",
+   "evidence": "real",
+   "finops": "real",
+   "recovery": "real",
+   "remediation": "real"
+  }
+ },
+ "missing": [
+  "action_result",
+  "recovery_result"
+ ],
+ "workflow": {
+  "revision": 6,
+  "action_completed_at": null,
+  "recovery_deadline_at": null,
+  "recovery_deadline": null,
+  "execution_ambiguous": false,
+  "execution_intent": null,
+  "reconciliation": null,
+  "diagnosis_error": null,
+  "recovery_error": null,
+  "archive_status": null,
+  "archive_attempts": null,
+  "archive_error": null
+ },
+ "audit": [
+  {
+   "event_id": "AUD-c8ee121f8b8c4411a2813f93e84bb1e4",
+   "timestamp": "2026-10-10T19:35:19.109519+00:00",
+   "incident_id": "INC-20261010-193515-payment-service",
+   "event_type": "DECISION_PROPOSED",
+   "details": {
+    "incident_id": "INC-20261010-193515-payment-service",
+    "recommended_action": "ROLLBACK",
+    "target": "payment-service",
+    "parameters": {
+     "from_version": "v2",
+     "to_version": "v1"
+    },
+    "confidence": 0.9,
+    "risk": "MEDIUM",
+    "reason": "Faulty deployment detected",
+    "approval_required": true
+   }
+  }
+ ]
+}

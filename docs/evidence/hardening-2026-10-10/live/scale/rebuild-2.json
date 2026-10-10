@@ -1,0 +1,10 @@
+[
+ 200,
+ {
+  "action": "ESCALATE",
+  "reason": "No safe automated action available",
+  "approval_required": false,
+  "confidence": 0.0,
+  "scale_option": null
+ }
+]

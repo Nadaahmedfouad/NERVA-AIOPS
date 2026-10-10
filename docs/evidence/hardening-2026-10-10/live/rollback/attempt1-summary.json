@@ -1,0 +1,1 @@
+{"attempt":1,"incident":"INC-20261010-192612-payment-service","outcome":"ESCALATED: M3 unknown (M1 had no deployment event because the drill patch omitted nexus.io release annotations); M4 proposed no action","manual_operator_restore":"kubectl rollout undo deployment/payment-service --to-revision=7 at 2026-10-10T19:27:38Z"}

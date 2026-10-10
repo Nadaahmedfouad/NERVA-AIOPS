@@ -1,0 +1,10 @@
+{
+ "attempt": 1,
+ "incident": "INC-20261010-194404-payment-service",
+ "detected": "2026-10-10T19:44:04Z (10 s after the 150 RPS spike generator started)",
+ "first_proposal": "SCALE 1 -> 2 (LOW) sized from a half-developed reading (request_rate 28.8 in a 1-minute window); not approved by the operator",
+ "expired_approval": "M5 without operator token: 401; with token after TTL: 409 proposal_expired",
+ "rediagnosis_1": "M4 invalidated the expired proposal (status DIAGNOSED); M3 refused with 502: latest linked anomaly older than 300 s (M2 links only onset + peak) -> M4 503 retryable, no action",
+ "rediagnosis_2": "After an operator-linked genuine latest M2 alert (20:09:59Z): the spike generator had already ended (~20:08:54Z, session paused by a usage limit), telemetry healthy, M3 unknown -> ESCALATED, no action",
+ "findings": ["M4_AUTO_BUILD_DELAY_SECONDS unset in the cluster manifest", "M2 does not refresh linked evidence for long-running incidents, so TTL re-diagnosis cannot obtain fresh evidence", "request_rate_change scored on a falling or idle load (onset and offset alerts)"]
+}

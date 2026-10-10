@@ -621,3 +621,31 @@ def test_async_dispatch_delivers_through_workers_and_drains_on_close(reference, 
     stats = pipe.dispatch_stats()
     assert stats["failed_calls"] == 0 and stats["completed_calls"] >= 2 and stats["pending_handoffs"] == 0
     assert pipe.close(2) == {"undelivered": []}
+
+
+def test_a_long_running_incident_keeps_fresh_evidence_linked(reference, shared):
+    """Live finding 2026-10-10: after onset + peak nothing was linked, so 5 minutes later
+    M3 rejected the linked anomaly as stale and re-diagnosis was impossible."""
+    clock = Clock()
+    pipe = make_pipe(reference, shared, now=clock)
+    first = pipe.process(bad(ago(100), seed=1))
+    incident_id = first.incident.incident_id
+    assert list(shared.state.anomalies) == [first.event.anomaly_id]
+    clock.advance(30)
+    pipe.process(bad(ago(85), seed=2))
+    assert len(shared.state.anomalies) == 1                     # within the refresh interval: nothing
+    clock.advance(31)
+    newest = pipe.process(bad(ago(70), seed=3))
+    linked = list(shared.state.anomalies)
+    assert linked[-1] == newest.event.anomaly_id and len(linked) == 2
+    assert pipe.correlator.get(incident_id).handoff.last_linked_at == clock.moment
+
+
+def test_refresh_can_be_disabled(reference, shared, monkeypatch):
+    monkeypatch.setenv("M2_HANDOFF_REFRESH_S", "0")
+    clock = Clock()
+    pipe = make_pipe(reference, shared, now=clock)
+    pipe.process(bad(ago(100), seed=1))
+    clock.advance(120)
+    pipe.process(bad(ago(85), seed=2))
+    assert len(shared.state.anomalies) == 1

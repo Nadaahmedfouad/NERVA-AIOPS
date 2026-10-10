@@ -59,6 +59,12 @@ def test_operator_boundary_is_configured_for_the_dashboard():
         assert "M5_UI_TRUSTED_NETWORK: \"true\"" not in (ROOT / path).read_text(encoding="utf-8")
 
 
+def test_diagnosis_waits_for_a_developed_fault_reading():
+    env, _ = manifest_env(ROOT / "services/shared-nexus-api/k8s/shared-nexus-api.yaml", "shared-nexus-api")
+    assert float(env["M4_AUTO_BUILD_DELAY_SECONDS"]["value"]) >= 60
+    assert float(compose_env("shared-nexus-api")["M4_AUTO_BUILD_DELAY_SECONDS"]) >= 60
+
+
 def test_m4_liveness_has_no_dependency_io():
     _, container = manifest_env(ROOT / "services/shared-nexus-api/k8s/shared-nexus-api.yaml", "shared-nexus-api")
     assert container["livenessProbe"]["httpGet"]["path"] == "/live"

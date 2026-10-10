@@ -1,7 +1,7 @@
 {
   "format": 1,
   "detector": "z_score_per_service",
-  "created": "2026-10-10T19:10:41Z",
+  "created": "2026-10-10T19:26:12Z",
   "trained_on": [
     "capture1.json",
     "capture2.json"
@@ -55,11 +55,15 @@
   "evaluation": {
     "frozen_before_evaluation": true,
     "held_out_fault_capture": "capture3.json",
-    "held_out_healthy_windows": [
+    "independent_healthy_window": "window-heldout-8rep-10rps.json (captured during the live drill; not used to design any rule)",
+    "rule_design_windows": [
       "window-healthy-3rep-30rps.json",
-      "window-healthy-8rep-228rps.json"
+      "window-healthy-8rep-228rps.json",
+      "window-insample-traffic-onset-8rep.json",
+      "window-insample-spike-offset-1rep.json",
+      "live/onset-alert/m2-detail.json"
     ],
     "report": "docs/evidence/hardening-2026-10-10/m2/heldout-evaluation.json",
-    "caveat": "The load_features rule was motivated by the two healthy windows; their false-alarm counts are not an independent test."
+    "caveat": "Rule-design windows are in-sample for false-alarm claims; only capture3 and the independent window are held out."
   }
 }

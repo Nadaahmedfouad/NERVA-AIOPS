@@ -1,0 +1,137 @@
+{
+ "incident": {
+  "incident_id": "INC-20261010-191954-payment-service",
+  "started_at": "2026-10-10T19:19:54.287000Z",
+  "status": "DETECTED",
+  "severity": "high",
+  "affected_services": [
+   "payment-service"
+  ],
+  "anomaly_ids": [
+   "ANO-dfa71c82",
+   "ANO-7ef714e0",
+   "ANO-e7183477"
+  ]
+ },
+ "last_alert_at": "2026-10-10T19:20:24.389000Z",
+ "alert_count": 3,
+ "peak_score": 0.9941,
+ "signals": [
+  "cpu",
+  "request_rate_change"
+ ],
+ "context": null,
+ "handoff": {
+  "incident_created": true,
+  "linked_anomaly_ids": [
+   "ANO-dfa71c82"
+  ],
+  "attempts": 1,
+  "last_attempt": "2026-10-10T19:19:54.329674Z",
+  "error": null
+ },
+ "events": [
+  {
+   "timestamp": "2026-10-10T19:19:54.287000Z",
+   "service": "payment-service",
+   "anomaly_id": "ANO-dfa71c82",
+   "score": 0.9941,
+   "severity": "high",
+   "model": "z_score_per_service",
+   "features": {
+    "request_rate": 3.1334686490210086,
+    "request_rate_change": 6.049834439999916,
+    "latency_p95_ms": 9.5,
+    "latency_change": 0.0,
+    "http_5xx_rate": 0.0,
+    "cpu": 0.007667056814323631,
+    "memory": 0.08747482299804688,
+    "replica_count": 8.0
+   },
+   "wobbles": {
+    "request_rate": 0.0,
+    "request_rate_change": 840.2586721676118,
+    "latency_p95_ms": 1.0543293760611092,
+    "latency_change": 0.03933717926133741,
+    "http_5xx_rate": 0.0,
+    "cpu": 10.79139338928237,
+    "memory": 4.904985427856445,
+    "replica_count": 0.0
+   },
+   "signals": [
+    "cpu",
+    "request_rate_change"
+   ],
+   "context": null,
+   "incident_id": "INC-20261010-191954-payment-service"
+  },
+  {
+   "timestamp": "2026-10-10T19:20:09.332000Z",
+   "service": "payment-service",
+   "anomaly_id": "ANO-7ef714e0",
+   "score": 0.9668,
+   "severity": "medium",
+   "model": "z_score_per_service",
+   "features": {
+    "request_rate": 6.422667194307234,
+    "request_rate_change": 1.0496988844339872,
+    "latency_p95_ms": 9.5,
+    "latency_change": 0.0,
+    "http_5xx_rate": 0.0,
+    "cpu": 0.009556183996958215,
+    "memory": 0.08747482299804688,
+    "replica_count": 8.0
+   },
+   "wobbles": {
+    "request_rate": 0.0,
+    "request_rate_change": 145.68540037563565,
+    "latency_p95_ms": 1.0543293760611092,
+    "latency_change": 0.03933717926133741,
+    "http_5xx_rate": 0.0,
+    "cpu": 10.702340603358907,
+    "memory": 4.904985427856445,
+    "replica_count": 0.0
+   },
+   "signals": [
+    "cpu",
+    "request_rate_change"
+   ],
+   "context": null,
+   "incident_id": "INC-20261010-191954-payment-service"
+  },
+  {
+   "timestamp": "2026-10-10T19:20:24.389000Z",
+   "service": "payment-service",
+   "anomaly_id": "ANO-e7183477",
+   "score": 0.9241,
+   "severity": "medium",
+   "model": "z_score_per_service",
+   "features": {
+    "request_rate": 9.244859775244166,
+    "request_rate_change": 0.4394113061686269,
+    "latency_p95_ms": 9.500000000000002,
+    "latency_change": 1.8698493046318425e-16,
+    "http_5xx_rate": 0.0,
+    "cpu": 0.011333860523156138,
+    "memory": 0.08747482299804688,
+    "replica_count": 8.0
+   },
+   "wobbles": {
+    "request_rate": 0.0,
+    "request_rate_change": 60.909810742286986,
+    "latency_p95_ms": 1.0543293760611059,
+    "latency_change": 0.039337179261332726,
+    "http_5xx_rate": 0.0,
+    "cpu": 10.618541561884157,
+    "memory": 4.904985427856445,
+    "replica_count": 0.0
+   },
+   "signals": [
+    "cpu",
+    "request_rate_change"
+   ],
+   "context": null,
+   "incident_id": "INC-20261010-191954-payment-service"
+  }
+ ]
+}

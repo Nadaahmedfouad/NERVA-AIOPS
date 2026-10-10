@@ -44,6 +44,7 @@ class HandoffState:
     incident_created: bool = False
     linked: set[str] = field(default_factory=set)       # anomaly ids the shared API now holds
     peak_done: bool = False                             # the strongest alert was linked after settling
+    last_linked_at: datetime | None = None              # when an alert was last linked (refresh pacing)
     attempts: int = 0
     last_attempt: datetime | None = None
     error: str | None = None

@@ -1,0 +1,25 @@
+{
+ "digest": "16c98a0410813d8fa04ebfa483173c5e86f4318a33170a5529a762621ea0a9af",
+ "proposal_state": {
+  "created_at": "2026-10-10T19:44:08.347247+00:00",
+  "valid_timestamp": true,
+  "ttl_seconds": 300.0,
+  "expires_at": "2026-10-10T19:49:08.347247+00:00",
+  "expired": true
+ },
+ "without_operator_token": [
+  401,
+  {
+   "detail": "A valid operator token is required for decisions"
+  }
+ ],
+ "approved": [
+  409,
+  {
+   "status": "degraded",
+   "detail": "Shared API returned HTTP 409 (proposal_expired): Proposal has expired or has no valid timestamp; diagnose again to capture fresh state",
+   "source": "live"
+  }
+ ],
+ "approved_at": "2026-10-10T20:11:52.282691+00:00"
+}

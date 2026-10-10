@@ -143,6 +143,9 @@ class Pipeline:
         self._handoff_error: str | None = None
         self._lock = threading.RLock()
         self.handoff_retry_max_s = float(os.getenv("M2_HANDOFF_RETRY_MAX_S", "120"))
+        # While an incident keeps alerting, link its newest alert at most this often, so
+        # the shared API always holds evidence fresh enough for (re-)diagnosis. 0 disables.
+        self.handoff_refresh_s = float(os.getenv("M2_HANDOFF_REFRESH_S", "60"))
         use_async = os.getenv("M2_ASYNC_DISPATCH", "false").lower() in {"1", "true", "yes", "on"}
         if use_async and handoff is not None:
             from .dispatch import Dispatcher
@@ -345,6 +348,12 @@ class Pipeline:
                 steps.append(("peak", peak))
             elif not dry_run:
                 state.peak_done = True       # the first alert already was the strongest
+        latest = candidate.latest()
+        if (self.handoff_refresh_s > 0 and state.incident_created and state.last_linked_at is not None
+                and latest.anomaly_id not in state.linked
+                and all(getattr(item, "anomaly_id", None) != latest.anomaly_id for _, item in steps)
+                and (self.now() - state.last_linked_at).total_seconds() >= self.handoff_refresh_s):
+            steps.append(("latest", latest))
         return steps
 
     def _deliver(self, incident_id: str) -> None:
@@ -374,7 +383,7 @@ class Pipeline:
                 try:
                     if kind == "incident":
                         self.handoff.create_incident(item, now)
-                    else:                                    # "onset" or "peak"
+                    else:                                    # "onset", "peak" or "latest"
                         self.handoff.link_anomaly(incident_id, item)
                 except HandoffError as exc:
                     error = str(exc)
@@ -387,6 +396,7 @@ class Pipeline:
                         state.incident_created = True
                     else:
                         state.linked.add(item.anomaly_id)
+                        state.last_linked_at = now
                         if kind == "peak":
                             state.peak_done = True
                 state.error = error

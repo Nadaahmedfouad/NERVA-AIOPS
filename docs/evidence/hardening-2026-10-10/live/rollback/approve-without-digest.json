@@ -1,0 +1,10 @@
+[
+ 428,
+ {
+  "detail": {
+   "category": "precondition_required",
+   "message": "Real approval must name the reviewed proposal with X-Proposal-Digest",
+   "retryable": false
+  }
+ }
+]

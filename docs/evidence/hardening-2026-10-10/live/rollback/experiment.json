@@ -1,0 +1,12 @@
+[
+ 200,
+ {
+  "run_id": "RUN-HARDENING-ROLLBACK-20261010",
+  "scenario": "bad_deployment",
+  "injection_time": "2026-10-10T19:34:18.198000Z",
+  "injection_evidence": "kubectl patch accepted at 19:34:18.198Z (live/rollback/injection-attempt2.json)",
+  "registered_by": "hardening-drill-operator",
+  "expected_root_cause": "faulty_deployment",
+  "rca_correct": true
+ }
+]

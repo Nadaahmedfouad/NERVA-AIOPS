@@ -683,6 +683,9 @@ def _apply_recovery_result(incident_id: str, success: bool):
     if "_recovery" not in incident and recovery_provider.RECOVERY_PROVIDER == "mock":
         record_provider_use(incident, "recovery", "mock")
         incident["_recovery"] = {"incident_id": incident_id, "success": success, "source": "mock"}
+    # A pending-measurement message is stale once the outcome is decided.
+    for key in ("_recovery_last_error", "_recovery_poll_at"):
+        incident.pop(key, None)
     if success:
         incident["status"] = transition(IncidentStatus(incident["status"]), IncidentStatus.RESOLVED,
                                         recovery_validated=True).value

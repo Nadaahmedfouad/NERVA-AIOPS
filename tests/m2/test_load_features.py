@@ -68,3 +68,22 @@ def test_committed_reference_on_held_out_genuine_data():
     assert faults["normal"]["false_alarms"] == 0
     scaled = json.loads((EVIDENCE / "hardening-2026-10-10/m2/window-healthy-8rep-228rps.json").read_text())
     assert heldout.healthy_metrics(reference, scaled)["alarms"] == 0
+
+
+def test_live_traffic_onset_alert_is_not_scored_by_the_committed_reference():
+    """The exact feature vector M2 recorded live at 19:19:54Z when traffic started from idle."""
+    detail = json.loads((EVIDENCE / "hardening-2026-10-10/live/onset-alert/m2-detail.json").read_text())
+    event = detail["events"][0]
+    assert event["wobbles"]["request_rate_change"] > 800          # what the deployed reference saw live
+    reference = reference_mod.load_reference(ROOT / "services/anomaly-engine/reference/reference.json")
+    features = [event["features"][name] for name in FEATURES]
+    wobbles = reference.detector.explain("payment-service", features)
+    assert max(wobbles) < reference.alert.wobbles
+    assert wobbles[FEATURES.index("request_rate_change")] == 0     # idle -> light load is not degradation
+
+
+def test_a_spike_beyond_capacity_still_scores_its_change():
+    ruler = detector(load=True)
+    spike = vector(548, 1)
+    spike[FEATURES.index("request_rate_change")] = 5.0
+    assert ruler.explain("svc", spike)[FEATURES.index("request_rate_change")] > 0

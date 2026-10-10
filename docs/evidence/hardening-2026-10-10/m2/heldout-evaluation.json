@@ -41,10 +41,34 @@
         "drivers": {
           "request_rate": 133
         }
+      },
+      "window-heldout-8rep-10rps.json": {
+        "readings": 12,
+        "alarms": 12,
+        "drivers": {
+          "request_rate": 12
+        }
+      },
+      "window-insample-traffic-onset-8rep.json": {
+        "readings": 9,
+        "alarms": 9,
+        "drivers": {
+          "request_rate": 7,
+          "request_rate_change": 2
+        }
+      },
+      "window-insample-spike-offset-1rep.json": {
+        "readings": 10,
+        "alarms": 10,
+        "drivers": {
+          "latency_p95_ms": 5,
+          "request_rate_change": 1,
+          "request_rate": 4
+        }
       }
     }
   },
-  "reference-candidate.json": {
+  "reference.json": {
     "trained_on": [
       "capture1.json",
       "capture2.json"
@@ -85,6 +109,23 @@
         "readings": 133,
         "alarms": 0,
         "drivers": {}
+      },
+      "window-heldout-8rep-10rps.json": {
+        "readings": 12,
+        "alarms": 0,
+        "drivers": {}
+      },
+      "window-insample-traffic-onset-8rep.json": {
+        "readings": 9,
+        "alarms": 0,
+        "drivers": {}
+      },
+      "window-insample-spike-offset-1rep.json": {
+        "readings": 10,
+        "alarms": 5,
+        "drivers": {
+          "latency_p95_ms": 5
+        }
       }
     }
   }

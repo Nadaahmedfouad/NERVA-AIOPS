@@ -1,0 +1,140 @@
+{
+ "incident": {
+  "incident_id": "INC-20261010-192612-payment-service",
+  "started_at": "2026-10-10T19:26:12.299000Z",
+  "status": "ESCALATED",
+  "severity": "high",
+  "affected_services": [
+   "payment-service"
+  ],
+  "anomaly_ids": [
+   "ANO-adaf9269"
+  ]
+ },
+ "anomaly": {
+  "anomaly_id": "ANO-adaf9269",
+  "timestamp": "2026-10-10T19:26:12.299000Z",
+  "service": "payment-service",
+  "score": 0.9974,
+  "severity": "high",
+  "model": "z_score_per_service",
+  "features": {
+   "request_rate": 8.734868913357515,
+   "latency_p95_ms": 737.5,
+   "http_5xx_rate": 0.12207411813572772,
+   "cpu": 0.017505164422333436
+  }
+ },
+ "anomalies": [
+  {
+   "anomaly_id": "ANO-adaf9269",
+   "timestamp": "2026-10-10T19:26:12.299000Z",
+   "service": "payment-service",
+   "score": 0.9974,
+   "severity": "high",
+   "model": "z_score_per_service",
+   "features": {
+    "request_rate": 8.734868913357515,
+    "latency_p95_ms": 737.5,
+    "http_5xx_rate": 0.12207411813572772,
+    "cpu": 0.017505164422333436
+   }
+  }
+ ],
+ "rca": {
+  "incident_id": "INC-20261010-192612-payment-service",
+  "root_cause": "unknown",
+  "affected_component": "payment-service",
+  "confidence": 0.0,
+  "evidence": []
+ },
+ "decision": {
+  "incident_id": "INC-20261010-192612-payment-service",
+  "recommended_action": "ESCALATE",
+  "target": "payment-service",
+  "parameters": {},
+  "confidence": 0.0,
+  "risk": "HIGH",
+  "reason": "No safe automated action available",
+  "approval_required": false
+ },
+ "proposal_digest": "2c683cbb20a0a50e5d7be9795730ce64b8d1a2506a54eda6c0e574555549787b",
+ "proposal_state": {
+  "created_at": "2026-10-10T19:26:13.822343+00:00",
+  "valid_timestamp": true,
+  "ttl_seconds": 300.0,
+  "expires_at": "2026-10-10T19:31:13.822343+00:00",
+  "expired": false
+ },
+ "action_result": null,
+ "recovery_result": null,
+ "recovery_validation": null,
+ "finops_context": null,
+ "deployment_event": null,
+ "evidence": null,
+ "source": "real",
+ "provider_modes": {
+  "rca": "real"
+ },
+ "provenance": {
+  "source": "real",
+  "modes": {
+   "rca": "real"
+  },
+  "used": {
+   "rca": [
+    "real"
+   ]
+  },
+  "unused": [
+   "evidence",
+   "finops",
+   "remediation",
+   "recovery"
+  ],
+  "configured_now": {
+   "rca": "real",
+   "evidence": "real",
+   "finops": "real",
+   "recovery": "real",
+   "remediation": "real"
+  }
+ },
+ "missing": [
+  "evidence",
+  "action_result",
+  "recovery_result"
+ ],
+ "workflow": {
+  "revision": 8,
+  "action_completed_at": null,
+  "recovery_deadline_at": null,
+  "recovery_deadline": null,
+  "execution_ambiguous": false,
+  "execution_intent": null,
+  "reconciliation": null,
+  "diagnosis_error": null,
+  "recovery_error": null,
+  "archive_status": "DELIVERED",
+  "archive_attempts": 1,
+  "archive_error": null
+ },
+ "audit": [
+  {
+   "event_id": "AUD-4b62dc0d9c5842ffacdf379a1f052d5e",
+   "timestamp": "2026-10-10T19:26:13.840616+00:00",
+   "incident_id": "INC-20261010-192612-payment-service",
+   "event_type": "DECISION_PROPOSED",
+   "details": {
+    "incident_id": "INC-20261010-192612-payment-service",
+    "recommended_action": "ESCALATE",
+    "target": "payment-service",
+    "parameters": {},
+    "confidence": 0.0,
+    "risk": "HIGH",
+    "reason": "No safe automated action available",
+    "approval_required": false
+   }
+  }
+ ]
+}

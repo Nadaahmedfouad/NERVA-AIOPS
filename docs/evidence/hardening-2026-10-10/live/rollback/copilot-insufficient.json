@@ -1,0 +1,19 @@
+[
+ 200,
+ {
+  "status": "insufficient_evidence",
+  "source": "real",
+  "mode": "deterministic_grounded",
+  "answer": "NEXUS does not have enough recorded evidence.",
+  "citations": [],
+  "similar_incidents": [],
+  "supported_questions": [
+   "What happened?",
+   "What changed before the incident?",
+   "What is the root cause?",
+   "Have we seen this before?",
+   "What action was taken?",
+   "Did it work?"
+  ]
+ }
+]

@@ -1,0 +1,1 @@
+{"attempt":2,"injection_command":"kubectl patch deployment payment-service: image v2, VERSION=v2, label version=v2, release annotations previous-version=v1 version=v2 commit-sha=drill-faulty-v2 pipeline-id=hardening-c01ba3-rollback-drill","patch_started":"2026-10-10T19:34:17.141Z","patch_accepted":"2026-10-10T19:34:18.198Z"}
