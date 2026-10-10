@@ -1,0 +1,22 @@
+commit bbe1b1f 2026-10-10T20:38:43Z python Python 3.11.9 node v24.11.1 os windows-11
+## root: contracts, M1, M2, registry, deployment wiring, k8s traffic
+505 passed, 3 warnings, 70 subtests passed in 77.18s (0:01:17)
+## M3
+45 passed, 1 warning in 0.82s
+## M4 incl. real PostgreSQL restart, fencing, revisions
+180 passed, 1 warning in 20.48s
+## M4 concurrency/audit regressions x3
+28 passed, 1 warning in 1.76s
+28 passed, 1 warning in 1.73s
+28 passed, 1 warning in 1.89s
+## M6 incl. PostgreSQL readback
+133 passed, 1 warning in 1.62s
+## M5 incl. PostgreSQL
+Ran 61 tests in 3.161s OK 
+## UI behaviour
+ℹ tests 11 ℹ pass 11 ℹ fail 0 
+## grounded-answer evaluation: passed cases / failed cases
+9 / 0
+## six-service HTTP integration (PostgreSQL)
+6 passed in 164.30s (0:02:44)
+images: all 7 build at bbe1b1f (2026-10-10T20:45:35Z)
