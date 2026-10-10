@@ -161,7 +161,7 @@ class MemoryTests(unittest.TestCase):
             return httpx.Response(200, json={**self.records[0]["context"], "memory": self.records[0]["memory"], "source": "real"})
         with httpx.Client(transport=httpx.MockTransport(handler)) as shared:
             provider = Provider("live", shared)
-            with patch.dict(os.environ, {"M5_SHARED_API_TOKEN": "test-only-token", "M5_OPERATOR_ID": "test-operator"}):
+            with patch.dict(os.environ, {"M5_SHARED_API_TOKEN": "test-only-token", "M5_OPERATOR_ID": "test-operator", "M5_UI_TRUSTED_NETWORK": "true"}):
                 with TestClient(create_app(self.repo, provider)) as client:
                     self.assertEqual(client.get("/internal/ui/overview").json()["source"], "real")
                     self.assertEqual(client.get("/internal/ui/incidents/INC-001").json()["source"], "real")

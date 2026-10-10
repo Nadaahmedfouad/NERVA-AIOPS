@@ -98,7 +98,7 @@ class ToolTests(unittest.TestCase):
             writes.append(json.loads(request.content))
             return httpx.Response(200, json={"status": "pending_approval"})
         args = ActionArgs(incident_id="INC-001", service="payment-service", action="RESTART", reason="User requested")
-        with patch.dict(os.environ, {"M5_ACTION_REQUEST_PATH": "/api/action-requests"}):
+        with patch.dict(os.environ, {"M5_ACTION_REQUEST_PATH": "/api/action-requests", "M5_UI_TRUSTED_NETWORK": "true"}):
             draft = self.drafts.prepare(args, "real", "live")
             with httpx.Client(transport=httpx.MockTransport(handler)) as client:
                 provider = Provider("live", client)
@@ -200,7 +200,7 @@ class ToolTests(unittest.TestCase):
         self.assertIsNone(draft["proposal"]["incident_id"])
         self.assertFalse(draft["submission_available"])
         self.assertEqual(self.tools.run("prepare_action_request", {**args, "service": "unknown"})["status"], "error")
-        with patch.dict(os.environ, {"M5_SERVICES_PATH": "/api/services", "M5_ACTION_REQUEST_PATH": "/api/requests"}):
+        with patch.dict(os.environ, {"M5_SERVICES_PATH": "/api/services", "M5_ACTION_REQUEST_PATH": "/api/requests", "M5_UI_TRUSTED_NETWORK": "true"}):
             seen = []
             def handler(request):
                 seen.append(request.method)
@@ -239,7 +239,7 @@ class ToolTests(unittest.TestCase):
     def test_decline_is_final_idempotent_and_never_submits(self):
         writes = []
         args = ActionArgs(service="payment-service", action="RESTART", reason="User requested")
-        with patch.dict(os.environ, {"M5_ACTION_REQUEST_PATH": "/api/requests"}):
+        with patch.dict(os.environ, {"M5_ACTION_REQUEST_PATH": "/api/requests", "M5_UI_TRUSTED_NETWORK": "true"}):
             draft = self.drafts.prepare(args, "real", "live")
             with httpx.Client(transport=httpx.MockTransport(lambda request: writes.append(request) or httpx.Response(200, json={"status": "pending_approval"}))) as client:
                 app = create_app(self.repo, Provider("live", client))
@@ -258,7 +258,7 @@ class ToolTests(unittest.TestCase):
 
     def test_expired_and_inflight_drafts_cannot_be_accepted_or_declined(self):
         args = ActionArgs(service="payment-service", action="RESTART", reason="User requested")
-        with patch.dict(os.environ, {"M5_ACTION_REQUEST_PATH": "/api/requests"}):
+        with patch.dict(os.environ, {"M5_ACTION_REQUEST_PATH": "/api/requests", "M5_UI_TRUSTED_NETWORK": "true"}):
             for state in ["submitting", "submitted", "expired"]:
                 draft = self.drafts.prepare(args, "real", "live")
                 item = self.drafts.items[draft["draft_id"]]

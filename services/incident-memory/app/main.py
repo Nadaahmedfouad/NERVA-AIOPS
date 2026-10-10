@@ -27,6 +27,34 @@ configure_json_logging(settings.service_name, settings.service_version, settings
 logger = logging.getLogger(__name__)
 
 
+def operator_auth_mode():
+    """The dashboard's operator trust boundary, chosen explicitly by configuration.
+
+    token            every decision must carry X-Nexus-Operator-Token (M5_UI_OPERATOR_TOKEN)
+    trusted-network  the operator declared M5 reachable only from a trusted network
+    disabled         neither configured: the dashboard can read but never decide
+    """
+    if os.getenv("M5_UI_OPERATOR_TOKEN"):
+        return "token"
+    if os.getenv("M5_UI_TRUSTED_NETWORK", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return "trusted-network"
+    return "disabled"
+
+
+def require_operator(raw):
+    origin = raw.headers.get("origin")
+    if origin and origin != str(raw.base_url).rstrip("/"):
+        raise HTTPException(403, "Cross-origin decisions are not accepted")
+    mode = operator_auth_mode()
+    if mode == "disabled":
+        raise HTTPException(503, "Operator decisions are disabled: set M5_UI_OPERATOR_TOKEN, or "
+                                 "M5_UI_TRUSTED_NETWORK=true when M5 is reachable only from a trusted network")
+    if mode == "token":
+        supplied = raw.headers.get("x-nexus-operator-token", "")
+        if not hmac.compare_digest(supplied.encode("utf-8"), os.environ["M5_UI_OPERATOR_TOKEN"].encode("utf-8")):
+            raise HTTPException(401, "A valid operator token is required for decisions")
+
+
 def create_app(repository=None, provider=None):
     repo = repository or Repository()
     upstream = provider or Provider()
@@ -120,7 +148,8 @@ def create_app(repository=None, provider=None):
     @app.get("/internal/ui/config")
     def config():
         return {"source": "mock" if upstream.mode == "mock" else "real", "ui_mode": upstream.mode,
-                "approval_enabled": upstream.approval_enabled(),
+                "approval_enabled": upstream.approval_enabled() and operator_auth_mode() != "disabled",
+                "operator_auth": operator_auth_mode(),
                 "operator": os.getenv("M5_OPERATOR_ID") if upstream.approval_enabled() else None,
                 "chat": chat_config()}
 
@@ -130,16 +159,12 @@ def create_app(repository=None, provider=None):
 
     @app.post("/internal/copilot/actions/{draft_id}/submit")
     def submit_action(draft_id: str, confirmation: ActionConfirmation, raw: Request):
-        origin = raw.headers.get("origin")
-        if origin and origin != str(raw.base_url).rstrip("/"):
-            raise HTTPException(403, "Cross-origin action requests are not accepted")
+        require_operator(raw)
         return drafts.submit(draft_id, upstream)
 
     @app.post("/internal/copilot/actions/{draft_id}/decline")
     def decline_action(draft_id: str, raw: Request):
-        origin = raw.headers.get("origin")
-        if origin and origin != str(raw.base_url).rstrip("/"):
-            raise HTTPException(403, "Cross-origin action decisions are not accepted")
+        require_operator(raw)
         return drafts.decline(draft_id)
 
     @app.get("/internal/ui/overview")
@@ -160,11 +185,11 @@ def create_app(repository=None, provider=None):
 
     @app.post("/internal/ui/incidents/{incident_id}/approval")
     def approval(incident_id: str, request: ApprovalRequest, raw: Request):
-        # Same-origin browser requests only. M4 still owns auth and approval policy.
-        origin = raw.headers.get("origin")
-        if origin and origin != str(raw.base_url).rstrip("/"):
-            raise HTTPException(403, "Cross-origin approvals are not accepted")
-        return upstream.approval(incident_id, request.decision)
+        # Same-origin, operator-authenticated requests only. M4 still owns approval policy.
+        require_operator(raw)
+        if request.decision == "approve" and upstream.mode == "live" and not request.proposal_digest:
+            raise HTTPException(428, "Approval must name the reviewed proposal (proposal_digest); reload the incident")
+        return upstream.approval(incident_id, request.decision, request.proposal_digest)
 
     app.mount("/assets", StaticFiles(directory=ROOT / "ui"), name="ui")
 

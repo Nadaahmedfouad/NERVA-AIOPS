@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {renderIncident, renderFinops} from './view.js';
-import {renderAnswer} from '../copilot/view.js';
+import {renderAnswer, answerLabel} from '../copilot/view.js';
 
 class Node {
   constructor(tag){this.tag=tag;this.childNodes=[];this.textContent='';this.listeners={};this.classList={add(){}};}
@@ -16,7 +16,8 @@ function text(node){return [node.textContent,...node.childNodes.map(text)].join(
 function find(node, tag){return [node,...node.childNodes.flatMap(child=>find(child,tag))].filter(child=>child.tag===tag);}
 const base = {source:'mixed',incident:{incident_id:'INC-1',status:'AWAITING_APPROVAL',started_at:'2026-10-10T08:00:00Z'},
   decision:{recommended_action:'SCALE',parameters:{replicas:3}},rca:{root_cause:'traffic_spike',evidence:['measured CPU']},
-  action_result:null,recovery_result:null,finops_context:null};
+  action_result:null,recovery_result:null,finops_context:null,proposal_digest:'d'.repeat(64),
+  proposal_state:{created_at:'2026-10-10T08:01:00Z',expires_at:'2026-10-10T08:06:00Z',expired:false}};
 
 test('approval buttons require a pending proposal and both are locked during a decision',()=>{
   let choice;
@@ -50,4 +51,50 @@ test('timeline, archive and citations render exact recorded values as text',()=>
   const answer=renderAnswer({answer:'Recorded recovery failed',mode:'offline_fallback',citations:[
     {incident_id:'INC-1',source:'real',field:'context.recovery_result.recovered',value:false}]});
   assert.match(text(answer),/context.recovery_result.recovered/);assert.match(text(answer),/false/);
+});
+
+test('approve sends the reviewed digest; expired or digest-less proposals cannot be approved',()=>{
+  let sent;
+  renderIncident(base,{approval_enabled:true},(action,button,review)=>sent={action,review},()=>{});
+  find(roots['#incident-body'],'button')[0].listeners.click();
+  assert.equal(sent.action,'approve');assert.equal(sent.review.digest,'d'.repeat(64));
+  renderIncident({...base,proposal_state:{...base.proposal_state,expired:true}},{approval_enabled:true},()=>{},()=>{});
+  let [approve,reject]=find(roots['#incident-body'],'button');
+  assert.equal(approve.disabled,true);assert.equal(reject.disabled,false);
+  assert.match(text(roots['#incident-body']),/proposal has expired/);
+  renderIncident({...base,proposal_digest:null},{approval_enabled:true},()=>{},()=>{});
+  assert.equal(find(roots['#incident-body'],'button')[0].disabled,true);
+});
+test('token mode asks for the operator token and passes it only with the decision',()=>{
+  let sent;
+  renderIncident(base,{approval_enabled:true,operator_auth:'token'},(action,button,review)=>sent=review,()=>{});
+  const [input]=find(roots['#incident-body'],'input');
+  assert.equal(input.type,'password');input.value='typed-secret';
+  find(roots['#incident-body'],'button')[0].listeners.click();
+  assert.equal(sent.token,'typed-secret');
+  renderIncident(base,{approval_enabled:false,operator_auth:'disabled'},()=>{},()=>{});
+  assert.match(text(roots['#incident-body']),/operator boundary is not configured/);
+});
+test('provenance, missing evidence and operator observations are explicit',()=>{
+  renderIncident({...base,source:'mixed',provenance:{used:{rca:['real'],remediation:['mock']},unused:['finops'],modes:{rca:'real',remediation:'mock'}},
+    missing:['recovery_result','evidence'],incident:{...base.incident,status:'VALIDATING'},
+    workflow:{execution_intent:{action_id:'ACT-1'},reconciliation:{outcome:'CONFIRMED',observed_by:'alice',evidence:'kubectl rollout status'},
+      recovery_deadline:{at:'2026-10-10T08:12:00Z',seconds_remaining:120,expired:false}}},
+    {approval_enabled:true},()=>{},()=>{});
+  const shown=text(roots['#incident-body']);
+  assert.match(shown,/never stored as real history/);
+  assert.match(shown,/Measured recovery: not recorded/);assert.match(shown,/Captured evidence: not recorded/);
+  assert.match(shown,/Operator observation \(not an actuator result\)/);assert.match(shown,/alice/);
+  assert.match(shown,/2026-10-10T08:12:00Z/);
+  assert.match(shown,/No measured M1 recovery is recorded/);
+  for(const button of find(roots['#incident-body'],'button').slice(0,2))assert.equal(button.disabled,true);
+});
+
+test('external-model answers are labelled apart from deterministic grounded answers',()=>{
+  assert.match(answerLabel({mode:'ai_chat',source:'real'}),/AI-generated \(external model\)/);
+  assert.match(answerLabel({mode:'ai_chat',kind:'general_guidance'}),/not incident evidence/);
+  assert.equal(answerLabel({mode:'deterministic_grounded'}),'Deterministic recorded answer');
+  assert.equal(answerLabel({mode:'offline_fallback'}),'Deterministic recorded answer');
+  const box=renderAnswer({mode:'deterministic_grounded',status:'insufficient_evidence',answer:'NEXUS does not have enough recorded evidence.',citations:[]});
+  assert.match(text(box),/nothing was inferred/);
 });

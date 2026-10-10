@@ -136,6 +136,8 @@ class CopilotRequest(Model):
 
 class ApprovalRequest(Model):
     decision: Literal["approve", "reject"]
+    # SHA-256 of the proposal the operator reviewed (M4 /context proposal_digest).
+    proposal_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
 
 
 class ChatMessage(Model):

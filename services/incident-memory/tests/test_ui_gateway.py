@@ -18,6 +18,9 @@ from app.storage import Repository, StorageUnavailable
 from app.tools import CopilotTools
 
 
+DIGEST = "a" * 64
+
+
 class GatewayTests(unittest.TestCase):
     def setUp(self):
         self.directory = TemporaryDirectory()
@@ -58,17 +61,21 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(result["incidents"][0]["incident_id"], "INC-001")
 
     def test_reject_and_approve_use_separate_routes_and_backend_credentials(self):
-        with patch.dict(os.environ, {"M5_SHARED_API_TOKEN": "test-only-private", "M5_OPERATOR_ID": "reviewer"}, clear=True):
+        with patch.dict(os.environ, {"M5_SHARED_API_TOKEN": "test-only-private", "M5_OPERATOR_ID": "reviewer",
+                                     "M5_UI_TRUSTED_NETWORK": "true"}, clear=True):
             with httpx.Client(transport=httpx.MockTransport(self.upstream)) as transport:
                 with TestClient(create_app(self.repo, Provider("live", transport))) as client:
                     config = client.get("/internal/ui/config").json()
                     self.assertTrue(config["approval_enabled"])
+                    self.assertEqual(config["operator_auth"], "trusted-network")
                     self.assertNotIn("test-only-private", json.dumps(config))
                     for choice in ("reject", "approve"):
-                        response = client.post("/internal/ui/incidents/INC-001/approval", json={"decision": choice})
+                        response = client.post("/internal/ui/incidents/INC-001/approval",
+                                               json={"decision": choice, "proposal_digest": DIGEST})
                         self.assertEqual(response.status_code, 200)
                         self.assertEqual(self.writes[-1].url.path, f"/api/incidents/INC-001/{choice}")
                         self.assertEqual(self.writes[-1].headers["X-Nexus-Approver"], "reviewer")
+                        self.assertEqual(self.writes[-1].headers["X-Proposal-Digest"], DIGEST)
                     self.assertEqual(client.post("/internal/ui/incidents/INC-001/approval", json={"decision": "reject"},
                         headers={"Origin": "https://other.example"}).status_code, 403)
                     self.assertEqual(len(self.writes), 2)
@@ -111,10 +118,16 @@ class GatewayTests(unittest.TestCase):
         with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"incident": self.incident}))) as transport:
             with TestClient(create_app(self.repo, Provider("live", transport))) as client:
                 self.assertEqual(client.get("/internal/ui/incidents/INC-001").status_code, 503)
-        with patch.dict(os.environ, {"M5_SHARED_API_TOKEN": "test-only", "M5_OPERATOR_ID": "reviewer"}, clear=True):
-            with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(409, json={"detail": "changed"}))) as transport:
+        with patch.dict(os.environ, {"M5_SHARED_API_TOKEN": "test-only", "M5_OPERATOR_ID": "reviewer",
+                                     "M5_UI_TRUSTED_NETWORK": "true"}, clear=True):
+            conflict = {"detail": {"category": "proposal_expired", "message": "Proposal has expired", "retryable": False}}
+            with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(409, json=conflict))) as transport:
                 with TestClient(create_app(self.repo, Provider("live", transport))) as client:
-                    self.assertEqual(client.post("/internal/ui/incidents/INC-001/approval", json={"decision": "approve"}).status_code, 409)
+                    response = client.post("/internal/ui/incidents/INC-001/approval",
+                                           json={"decision": "approve", "proposal_digest": DIGEST})
+                    self.assertEqual(response.status_code, 409)
+                    self.assertIn("proposal_expired", response.json()["detail"])
+                    self.assertNotIn("test-only", response.text)
 
     def test_archive_join_and_escalated_history_keep_recorded_status(self):
         record = deepcopy(self.record)
@@ -138,3 +151,70 @@ class GatewayTests(unittest.TestCase):
         with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(503))) as transport:
             rows = CopilotTools(self.repo, Provider("live", transport), "real").run("list_incidents", {"status": "UNRESOLVED"})
             self.assertEqual(rows["incidents"][0]["status"], "ESCALATED")
+
+
+class OperatorBoundaryTests(unittest.TestCase):
+    """The dashboard's operator trust boundary is explicit configuration, never implicit."""
+
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.repo = Repository("sqlite:///" + str(Path(self.directory.name) / "boundary.db"))
+        self.repo.initialize()
+        self.writes = []
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def upstream(self, request):
+        self.writes.append(request)
+        return httpx.Response(200, json={"incident_id": "INC-001", "status": "ESCALATED", "approved": False})
+
+    def client(self, env):
+        patcher = patch.dict(os.environ, {"M5_SHARED_API_TOKEN": "backend-secret", "M5_OPERATOR_ID": "reviewer", **env},
+                             clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        transport = httpx.Client(transport=httpx.MockTransport(self.upstream))
+        self.addCleanup(transport.close)
+        client = TestClient(create_app(self.repo, Provider("live", transport)))
+        self.addCleanup(client.close)
+        return client
+
+    def decide(self, client, headers=None, digest=DIGEST, decision="approve"):
+        body = {"decision": decision, **({"proposal_digest": digest} if digest else {})}
+        return client.post("/internal/ui/incidents/INC-001/approval", json=body, headers=headers or {})
+
+    def test_without_an_explicit_boundary_decisions_are_disabled(self):
+        client = self.client({})
+        config = client.get("/internal/ui/config").json()
+        self.assertEqual(config["operator_auth"], "disabled")
+        self.assertFalse(config["approval_enabled"])
+        self.assertEqual(self.decide(client).status_code, 503)
+        self.assertEqual(self.writes, [])
+
+    def test_token_mode_requires_the_operator_token_and_never_exposes_secrets(self):
+        client = self.client({"M5_UI_OPERATOR_TOKEN": "operator-secret"})
+        config = client.get("/internal/ui/config")
+        self.assertEqual(config.json()["operator_auth"], "token")
+        self.assertNotIn("operator-secret", config.text)
+        self.assertNotIn("backend-secret", config.text)
+        self.assertEqual(self.decide(client).status_code, 401)
+        self.assertEqual(self.decide(client, {"X-Nexus-Operator-Token": "wrong"}).status_code, 401)
+        self.assertEqual(self.writes, [])
+        response = self.decide(client, {"X-Nexus-Operator-Token": "operator-secret"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("backend-secret", response.text)
+        self.assertEqual(self.writes[-1].headers["Authorization"], "Bearer backend-secret")
+
+    def test_approve_requires_the_reviewed_digest_but_reject_does_not(self):
+        client = self.client({"M5_UI_TRUSTED_NETWORK": "true"})
+        self.assertEqual(self.decide(client, digest=None).status_code, 428)
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.decide(client, digest=None, decision="reject").status_code, 200)
+        self.assertEqual(self.decide(client, digest="not-a-digest").status_code, 422)
+
+    def test_cross_origin_decision_is_refused_even_with_a_token(self):
+        client = self.client({"M5_UI_OPERATOR_TOKEN": "operator-secret"})
+        response = self.decide(client, {"X-Nexus-Operator-Token": "operator-secret", "Origin": "https://evil.example"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.writes, [])

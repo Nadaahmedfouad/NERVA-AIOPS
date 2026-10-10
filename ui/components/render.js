@@ -23,10 +23,16 @@ export function fields(data, labels = {}) {
   }
   return table;
 }
-export async function api(path, payload, timeout=10000) {
-  const response = await fetch(path, {method: payload ? 'POST' : 'GET', headers: payload ? {'Content-Type':'application/json'} : {}, body: payload ? JSON.stringify(payload) : undefined, signal: AbortSignal.timeout(timeout)});
+export function errorText(data, status) {
+  const detail = data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail.message === 'string') return detail.category ? `${detail.category}: ${detail.message}` : detail.message;
+  return `Request failed (${status})`;
+}
+export async function api(path, payload, timeout=10000, headers={}) {
+  const response = await fetch(path, {method: payload ? 'POST' : 'GET', headers: {...(payload ? {'Content-Type':'application/json'} : {}), ...headers}, body: payload ? JSON.stringify(payload) : undefined, signal: AbortSignal.timeout(timeout)});
   let data;
   try {data = await response.json();} catch {throw new Error(`API returned an invalid response (${response.status})`);}
-  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status})`);
+  if (!response.ok) throw new Error(errorText(data, response.status));
   return data;
 }

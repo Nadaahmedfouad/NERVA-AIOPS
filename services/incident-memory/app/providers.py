@@ -6,6 +6,18 @@ import httpx
 from .fixtures import demo_records, demo_bundle
 
 
+def _reason(response):
+    """M4's own sanitized category/message (never a credential), when it sent one."""
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return ""
+    if isinstance(detail, dict) and isinstance(detail.get("message"), str):
+        category = detail.get("category") if isinstance(detail.get("category"), str) else "error"
+        return f" ({category[:40]}): {detail['message'][:200]}"
+    return ""
+
+
 class ProviderUnavailable(Exception):
     def __init__(self, message, status_code=503):
         super().__init__(message)
@@ -20,7 +32,7 @@ class Provider:
         self.base = os.getenv("SHARED_NEXUS_API_BASE_URL", "http://localhost:8004").rstrip("/")
         self.client = client
 
-    def request(self, method, path, payload=None, *, allow_list=False, timeout=10):
+    def request(self, method, path, payload=None, *, allow_list=False, timeout=10, extra_headers=None):
         if not path.startswith("/") or path.startswith("//"):
             raise ProviderUnavailable("Provider path must be a relative API path")
         headers = {}
@@ -30,6 +42,7 @@ class Provider:
         operator = os.getenv("M5_OPERATOR_ID")
         if method != "GET" and operator:
             headers["X-Nexus-Approver"] = operator
+        headers.update(extra_headers or {})
         try:
             if self.client:
                 response = self.client.request(method, self.base + path, json=payload, headers=headers)
@@ -37,9 +50,9 @@ class Provider:
                 with httpx.Client(timeout=timeout, follow_redirects=False) as client:
                     response = client.request(method, self.base + path, json=payload, headers=headers)
             if response.status_code >= 400:
-                # Preserve actionable rejection/not-found/conflict states, never a token or body.
-                code = response.status_code if response.status_code in {400, 401, 403, 404, 409, 422} else 503
-                raise ProviderUnavailable(f"Shared API returned HTTP {response.status_code}", code)
+                # Preserve actionable rejection/not-found/conflict states, never a token or raw body.
+                code = response.status_code if response.status_code in {400, 401, 403, 404, 409, 422, 428} else 503
+                raise ProviderUnavailable(f"Shared API returned HTTP {response.status_code}{_reason(response)}", code)
             result = response.json()
             if not isinstance(result, dict) and not (allow_list and isinstance(result, list)):
                 raise ProviderUnavailable("Shared API returned an invalid response envelope")
@@ -77,7 +90,7 @@ class Provider:
     def approval_enabled(self):
         return self.mode == "live" and bool(os.getenv("M5_SHARED_API_TOKEN")) and bool(os.getenv("M5_OPERATOR_ID"))
 
-    def approval(self, incident_id, decision):
+    def approval(self, incident_id, decision, proposal_digest=None):
         if self.mode == "mock":
             raise ProviderUnavailable("Approval is disabled in mock mode; no infrastructure action was executed")
         if decision not in {"approve", "reject"}:
@@ -87,4 +100,6 @@ class Provider:
         # Separate endpoints are intentional: Reject must never reach the execution route.
         setting = "M5_APPROVE_PATH" if decision == "approve" else "M5_REJECT_PATH"
         template = os.getenv(setting) or f"/api/incidents/{{incident_id}}/{decision}"
-        return self.request("POST", template.replace("{incident_id}", quote(incident_id, safe="")), {}, timeout=300)
+        headers = {"X-Proposal-Digest": proposal_digest} if proposal_digest else None
+        return self.request("POST", template.replace("{incident_id}", quote(incident_id, safe="")), {}, timeout=300,
+                            extra_headers=headers)
