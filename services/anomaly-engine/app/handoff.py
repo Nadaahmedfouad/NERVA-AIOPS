@@ -81,7 +81,7 @@ class SharedApiHandoff:
             data = json.dumps(payload, allow_nan=False).encode("utf-8")
         except ValueError:
             raise HandoffError("the event contains a value that cannot be sent (NaN or infinity)") from None
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "X-Nexus-Sender": "anomaly-engine"}
         token = os.getenv("NEXUS_INGEST_TOKEN") or os.getenv("NEXUS_SERVICE_TOKEN")
         if token:
             headers["Authorization"] = f"Bearer {token}"

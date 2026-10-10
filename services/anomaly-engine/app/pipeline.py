@@ -142,10 +142,17 @@ class Pipeline:
         self._latest: dict[str, AnomalyEvent] = {}
         self._handoff_error: str | None = None
         self._lock = threading.RLock()
+        self.handoff_retry_max_s = float(os.getenv("M2_HANDOFF_RETRY_MAX_S", "120"))
         use_async = os.getenv("M2_ASYNC_DISPATCH", "false").lower() in {"1", "true", "yes", "on"}
-        if use_async:
-            from app.dispatch import Dispatcher
-            self._dispatcher = Dispatcher(self._deliver)
+        if use_async and handoff is not None:
+            from .dispatch import Dispatcher
+            self._dispatcher = Dispatcher(
+                self._deliver,
+                maxsize=int(os.getenv("M2_DISPATCH_QUEUE_SIZE", "256")),
+                workers=int(os.getenv("M2_DISPATCH_WORKERS", "2")),
+                sweep=self.pending_handoffs,
+                sweep_interval_s=float(os.getenv("M2_DISPATCH_SWEEP_S", "5")),
+            )
         else:
             self._dispatcher = None
 
@@ -163,6 +170,49 @@ class Pipeline:
         if self.handoff is None:
             return "disabled"
         return "ok" if self._handoff_error is None else f"degraded: {self._handoff_error}"
+
+    def dispatch_stats(self) -> dict | None:
+        """Queue depth, in-flight work, deferrals and delivery counts (async mode only)."""
+        if self._dispatcher is None:
+            return None
+        stats = self._dispatcher.stats()
+        stats["pending_handoffs"] = len(self.pending_handoffs(due_only=False))
+        return stats
+
+    def _retry_delay(self, attempts: int) -> float:
+        return min(self.handoff_retry_max_s, self.handoff_retry_s * (2 ** max(0, attempts - 1)))
+
+    def pending_handoffs(self, due_only: bool = True) -> list[str]:
+        """Incidents with undelivered handoff steps (whose retry backoff has elapsed)."""
+        if self.handoff is None:
+            return []
+        now = self.now()
+        found = []
+        with self._lock:
+            for candidate in self.correlator.candidates(None, limit=self.correlator.max_candidates):
+                state = candidate.handoff
+                if state.in_flight or not self._pending_steps(candidate, dry_run=True):
+                    continue
+                if (due_only and state.error and state.last_attempt is not None
+                        and (now - state.last_attempt).total_seconds() < self._retry_delay(state.attempts)):
+                    continue
+                found.append(candidate.incident_id)
+        return found
+
+    def retry_pending(self) -> int:
+        """Retry every due pending handoff (called by the poller each cycle)."""
+        pending = self.pending_handoffs()
+        for incident_id in pending:
+            if self._dispatcher is not None:
+                self._dispatcher.submit(incident_id)
+            else:
+                self._deliver(incident_id)
+        return len(pending)
+
+    def close(self, timeout: float = 10.0) -> dict:
+        if self._dispatcher is None:
+            return {"undelivered": []}
+        return self._dispatcher.close(timeout)
 
     # -- the work ----------------------------------------------------------
 
@@ -281,7 +331,7 @@ class Pipeline:
 
     # -- handing the incident on -------------------------------------------
 
-    def _pending_steps(self, candidate: Candidate) -> list[tuple[str, object]]:
+    def _pending_steps(self, candidate: Candidate, dry_run: bool = False) -> list[tuple[str, object]]:
         state = candidate.handoff
         steps: list[tuple[str, object]] = []
         if not state.incident_created:
@@ -293,7 +343,7 @@ class Pipeline:
             peak = candidate.peak()
             if peak.anomaly_id != onset.anomaly_id and peak.anomaly_id not in state.linked:
                 steps.append(("peak", peak))
-            else:
+            elif not dry_run:
                 state.peak_done = True       # the first alert already was the strongest
         return steps
 
@@ -307,7 +357,7 @@ class Pipeline:
             if state.in_flight:
                 return
             if state.error and state.last_attempt is not None \
-                    and (now - state.last_attempt).total_seconds() < self.handoff_retry_s:
+                    and (now - state.last_attempt).total_seconds() < self._retry_delay(state.attempts):
                 return
             steps = self._pending_steps(candidate)
             if not steps:

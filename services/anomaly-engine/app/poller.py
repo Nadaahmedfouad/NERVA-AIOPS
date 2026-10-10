@@ -111,6 +111,8 @@ class Poller:
             self._last_seen[service] = snapshot.timestamp
             readings.append(self.pipeline.process(snapshot))
             self._mark(service, "ok")
+        # A failed handoff is retried even when no new alert arrives.
+        self.pipeline.retry_pending()
         return readings
 
     async def run(self, interval_s: float) -> None:

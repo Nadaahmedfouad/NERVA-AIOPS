@@ -592,3 +592,32 @@ def test_the_handoff_command_warns_when_the_evidence_is_old(running_m2, shared, 
         running_m2.client.post("/internal/anomalies/evaluate", json=body(bad(ago(3600 - 15 * i), seed=i)))
     assert cli.main(["handoff", "--m2-url", running_m2.url, "--to", shared.url]) == 0
     assert "minutes old" in capsys.readouterr().out
+
+
+def test_a_failed_handoff_is_retried_without_any_new_alert(reference, shared):
+    """The poller's retry pass delivers once the shared API is back, even after the fault ended."""
+    clock = Clock()
+    pipe = make_pipe(reference, shared, handoff_retry_s=10.0, now=clock)
+    shared.state.fail_next = 1
+    first = pipe.process(bad(ago(100), seed=1))
+    assert shared.state.incidents == [] and pipe.pending_handoffs(due_only=False) == [first.incident.incident_id]
+    assert pipe.retry_pending() == 0                       # backoff not yet elapsed
+    clock.advance(11)
+    assert pipe.retry_pending() == 1                       # no new reading, still delivered
+    assert len(shared.state.incidents) == 1 and pipe.pending_handoffs(due_only=False) == []
+
+
+def test_async_dispatch_delivers_through_workers_and_drains_on_close(reference, shared, monkeypatch):
+    monkeypatch.setenv("M2_ASYNC_DISPATCH", "true")
+    monkeypatch.setenv("M2_DISPATCH_SWEEP_S", "0.05")
+    pipe = make_pipe(reference, shared)
+    shared.state.fail_next = 1                             # first attempt fails; the sweep retries it
+    reading = pipe.process(bad(ago(100), seed=1))
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and (pipe.dispatch_stats()["pending_handoffs"]
+                                           or pipe.dispatch_stats()["completed_calls"] < 2):
+        time.sleep(0.02)
+    assert [i["incident_id"] for i in shared.state.incidents] == [reading.incident.incident_id]
+    stats = pipe.dispatch_stats()
+    assert stats["failed_calls"] == 0 and stats["completed_calls"] >= 2 and stats["pending_handoffs"] == 0
+    assert pipe.close(2) == {"undelivered": []}

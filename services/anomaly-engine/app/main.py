@@ -32,6 +32,12 @@ through `shared.logging`. M2's own settings:
     M2_HANDOFF_URL         where the shared API is. Unset: SHARED_NEXUS_API_BASE_URL.
     M2_HANDOFF_SETTLE_ALERTS  alerts after which the strongest one is linked too (default 4)
     M2_JSON_LOGGING        "off" to leave logging alone (default on)
+    M2_ASYNC_DISPATCH      true to hand off on background workers (default false: inline)
+    M2_DISPATCH_QUEUE_SIZE / M2_DISPATCH_WORKERS / M2_DISPATCH_SWEEP_S / M2_DISPATCH_SHUTDOWN_S
+                           queue bound (256), worker threads (2), retry sweep seconds (5),
+                           shutdown drain seconds (10)
+    M2_HANDOFF_RETRY_MAX_S cap for the exponential handoff retry backoff (default 120)
+    NEXUS_INGEST_TOKEN     bearer token the shared API requires for incident ingest
 """
 
 from __future__ import annotations
@@ -152,6 +158,8 @@ async def lifespan(_: FastAPI):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        # Drain queued handoffs; anything left is logged as undelivered, not silently lost.
+        await asyncio.to_thread(_state.pipeline.close, float(os.getenv("M2_DISPATCH_SHUTDOWN_S", "10")))
 
 
 app = FastAPI(
@@ -183,6 +191,7 @@ def health() -> dict:
         "environment": settings.environment,
         "detector": _state.pipeline.detector_name,
         "dependencies": {"m1": m1, "shared_api": shared_api, "reference": _state.reference_status},
+        "dispatch": _state.pipeline.dispatch_stats(),
     }
 
 
