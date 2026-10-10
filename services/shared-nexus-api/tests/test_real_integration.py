@@ -111,10 +111,16 @@ def create(client, identifier="INC-REAL"):
     return identifier
 
 
+def reviewed(client, identifier):
+    digest = client.get(f"/api/incidents/{identifier}/proposal").headers["X-Proposal-Digest"]
+    return {"X-Proposal-Digest": digest}
+
+
 def propose_and_approve(client, identifier):
     decision = client.post(f"/internal/decisions/build/{identifier}")
     assert decision.status_code == 200
-    action = client.post(f"/api/incidents/{identifier}/approve")
+    assert client.post(f"/api/incidents/{identifier}/approve").status_code == 428  # real data: digest required
+    action = client.post(f"/api/incidents/{identifier}/approve", headers=reviewed(client, identifier))
     assert action.status_code == 200
     return action.json()
 
@@ -371,11 +377,12 @@ def test_direct_remediation_has_completion_audit_and_duplicate_is_not_executed(r
     client, fixture = real_data_clients
     identifier = create(client)
     assert client.post(f"/internal/decisions/build/{identifier}").status_code == 200
-    response = client.post("/internal/remediation/execute", json={"incident_id": identifier, "action": "ROLLBACK", "approved": True})
+    response = client.post("/internal/remediation/execute", json={"incident_id": identifier, "action": "ROLLBACK", "approved": True},
+                           headers=reviewed(client, identifier))
     assert response.status_code == 200 and response.json()["success"] is True
     record = client.get(f"/api/incidents/{identifier}/actions/latest").json()
     assert record["completed_at"] == find_incident(identifier)["action_completed_at"]
-    assert client.post(f"/api/incidents/{identifier}/approve").json()["action_id"] == record["action_id"]
+    assert client.post(f"/api/incidents/{identifier}/approve", headers=reviewed(client, identifier)).json()["action_id"] == record["action_id"]
     audits = client.get("/internal/remediation/audit").json()
     assert sum(audit["event_type"] == "ACTION_EXECUTED" for audit in audits) == 1
 
@@ -387,7 +394,7 @@ def test_runtime_execution_failure_never_leaves_executing(real_data_clients, mon
     def fail(*args, **kwargs):
         raise RuntimeError("fixture actuator failure")
     monkeypatch.setattr("app.orchestration.orchestrator.execute_remediation", fail)
-    assert client.post(f"/api/incidents/{identifier}/approve").status_code == 400
+    assert client.post(f"/api/incidents/{identifier}/approve", headers=reviewed(client, identifier)).status_code == 400
     assert find_incident(identifier)["status"] == "ESCALATED"
     assert client.get(f"/api/incidents/{identifier}/actions/latest").json()["status"] == "FAILED"
 

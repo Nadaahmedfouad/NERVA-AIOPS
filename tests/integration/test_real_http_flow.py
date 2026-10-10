@@ -38,6 +38,7 @@ class HttpStack:
     def __init__(self, directory, *, extra_env=None, extra_members=()):
         self.directory = directory
         self.approval_token = uuid4().hex
+        self.ingest_token = uuid4().hex  # distinct service credential, as in deployment
         members = ("m1", "m3", "m4", "m6", *extra_members)
         self.urls = {name: f"http://127.0.0.1:{port}"
                      for name, port in zip(members, available_ports(len(members)))}
@@ -53,6 +54,7 @@ class HttpStack:
                    REMEDIATION_BACKEND="mock", M1_DATA_DIR=str(self.directory / "m1-data"),
                    M4_STATE_BACKEND="sqlite", M4_SQLITE_PATH=str(self.directory / "m4-state.sqlite"),
                    NEXUS_APPROVAL_TOKEN=self.approval_token,
+                   NEXUS_INGEST_TOKEN=self.ingest_token,
                    NEXUS_APPROVER_IDENTITY="controlled-test-operator",
                    M1_REQUEST_RATE_WINDOW="5s", M1_LATENCY_WINDOW="5s", M1_HISTORY_STEP_SECONDS="5",
                    M1_RECOVERY_HOLD_SECONDS="10", M1_RECOVERY_MIN_SAMPLES="3",
@@ -128,8 +130,11 @@ class HttpStack:
 
     def request(self, method, member, route, expected=200, **kwargs):
         if member == "m4" and "headers" not in kwargs:
+            # Each M4 route checks only its own credential: ingest/diagnosis the
+            # service token, decisions the operator token.
             kwargs["headers"] = {"X-Nexus-Approver-Token": self.approval_token,
-                                 "X-Nexus-Approver": "controlled-test-operator"}
+                                 "X-Nexus-Approver": "controlled-test-operator",
+                                 "X-Nexus-Ingest-Token": self.ingest_token}
         response = requests.request(method, self.urls[member] + route, timeout=20, **kwargs)
         assert response.status_code == expected, f"{member} {route}: HTTP {response.status_code} {response.text}"
         return response
@@ -178,9 +183,10 @@ def test_real_http_incident_action_and_measured_recovery(stack, scenario, action
         finops = stack.request("GET", "m6", "/internal/finops/context", params={"service": "payment-service"}).json()
         assert finops["current_cpu_request_m"] == 100 and finops["observed_cpu_pct"] == 100
         # 0.9 * 500m / 100m = 450% actual request utilization: risk needs 9 replicas.
-        low_risk = [option for option in finops["temporary_scale_options"] if option["risk"] == "LOW"]
-        assert min(option["replicas"] for option in low_risk) == 9
-        assert not any(option["replicas"] == 2 and option["risk"] == "LOW" for option in finops["temporary_scale_options"])
+        # 450% of the request needs 9 replicas for LOW risk, but the registry allows at most
+        # 7 added per step: M6 offers only permitted targets and none of them is LOW risk.
+        options = {option["replicas"]: option["risk"] for option in finops["temporary_scale_options"]}
+        assert max(options) <= 1 + 7 and "LOW" not in options.values() and options[7] == "MEDIUM"
     decision = stack.request("POST", "m4", f"/internal/decisions/build/{incident_id}").json()
     assert decision["action"] == action
     proposal = stack.request("GET", "m4", f"/api/incidents/{incident_id}/proposal").json()
@@ -188,12 +194,20 @@ def test_real_http_incident_action_and_measured_recovery(stack, scenario, action
     capture = stack.request("GET", "m1", f"/internal/evidence/{incident_id}").json()
     assert capture["scenario"] == ("bad_deployment" if action == "ROLLBACK" else "traffic_spike")
     assert capture["baseline"] == baseline
-    result = stack.request("POST", "m4", f"/api/incidents/{incident_id}/approve", json={"approved": True}).json()
+    digest = stack.request("GET", "m4", f"/api/incidents/{incident_id}/proposal").headers["X-Proposal-Digest"]
+    approve_headers = {"X-Nexus-Approver-Token": stack.approval_token, "X-Nexus-Approver": "controlled-test-operator"}
+    stack.request("POST", "m4", f"/api/incidents/{incident_id}/approve", headers=approve_headers, expected=428)
+    stack.request("POST", "m4", f"/api/incidents/{incident_id}/approve",
+                  headers={**approve_headers, "X-Proposal-Digest": "0" * 64}, expected=409)
+    approve_headers["X-Proposal-Digest"] = digest
+    result = stack.request("POST", "m4", f"/api/incidents/{incident_id}/approve", headers=approve_headers,
+                           json={"approved": True}).json()
     assert result["incident_id"] == incident_id and result["action"] == action and result["status"] == "SUCCESS"
     assert datetime.fromisoformat(result["started_at"]) <= datetime.fromisoformat(result["completed_at"])
     assert datetime.fromisoformat(capture["captured_at"]) <= datetime.fromisoformat(result["started_at"])
     assert stack.request("GET", "m4", f"/api/incidents/{incident_id}/actions/latest").json() == result
-    assert stack.request("POST", "m4", f"/api/incidents/{incident_id}/approve", json={"approved": True}).json() == result
+    assert stack.request("POST", "m4", f"/api/incidents/{incident_id}/approve", headers=approve_headers,
+                         json={"approved": True}).json() == result
     pending = stack.request("POST", "m4", f"/internal/recovery/validate/{incident_id}", expected=202)
     assert pending.json()["detail"]["category"] == "recovery_pending"
     assert pending.json()["detail"]["retryable"] is True and pending.headers["Retry-After"] == "15"
@@ -225,7 +239,7 @@ def test_real_http_incident_action_and_measured_recovery(stack, scenario, action
     assert all(point["metrics"]["latency_p95_ms"] <= 12.5 for point in recovery["measurement_window"]["points"])
     assert recovery["after"]["metrics"]["request_rate"] == snapshot["metrics"]["request_rate"]
     if action == "SCALE":
-        assert recovery["after"]["metrics"]["replica_count"] == 9
+        assert recovery["after"]["metrics"]["replica_count"] == 7
     else:
         assert recovery["after"]["version"] == "v1" and recovery["before"]["version"] == "v2"
     assert stack.request("POST", "m4", f"/internal/recovery/validate/{incident_id}").json()["status"] == "RESOLVED"

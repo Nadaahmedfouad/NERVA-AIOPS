@@ -15,7 +15,8 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from threading import Lock
+import os
+from threading import Condition, Lock
 from uuid import uuid4
 
 from app.api.incidents import find_incident, lock_for, persist_incidents, update_incident_status
@@ -47,7 +48,12 @@ _pending_executions = {}
 # In-process "currently running" markers. The durable tokens live on the
 # incident; these only stop two local callers running the same step at once.
 _inflight_lock = Lock()
+_inflight_changed = Condition(_inflight_lock)
 _inflight = {"diagnosis": set(), "execution": set(), "recovery": set()}
+
+
+class _AlreadyRunning(Exception):
+    pass
 
 DIAGNOSABLE = {IncidentStatus.DETECTED, IncidentStatus.CORRELATING, IncidentStatus.DIAGNOSING, IncidentStatus.DIAGNOSED}
 
@@ -77,6 +83,12 @@ def _claim(kind, incident_id):
 def _release(kind, incident_id):
     with _inflight_lock:
         _inflight[kind].discard(incident_id)
+        _inflight_changed.notify_all()
+
+
+def _wait_until_idle(kind, incident_id, timeout):
+    with _inflight_lock:
+        return _inflight_changed.wait_for(lambda: incident_id not in _inflight[kind], timeout=timeout)
 
 
 def in_flight(kind, incident_id):
@@ -171,7 +183,7 @@ def _begin_diagnosis(incident_id):
             raise ConflictError(f"Incident in {state.value} is not ready for diagnosis")
         service = incident_service(incident)
         if not _claim("diagnosis", incident_id):
-            raise ConflictError("Diagnosis is already running for this incident", retryable=True)
+            raise _AlreadyRunning()
         try:
             if state == IncidentStatus.DETECTED:
                 incident["status"] = transition(state, IncidentStatus.CORRELATING).value
@@ -344,7 +356,18 @@ def _commit_diagnosis(attempt, gathered):
 
 
 def build_decision(incident_id: str):
-    attempt = _begin_diagnosis(incident_id)
+    try:
+        attempt = _begin_diagnosis(incident_id)
+    except _AlreadyRunning:
+        # Join the attempt already in flight instead of starting a duplicate:
+        # its committed decision is returned once it finishes.
+        join = float(os.getenv("M4_DIAGNOSIS_JOIN_SECONDS", "30"))
+        if not _wait_until_idle("diagnosis", incident_id, join):
+            raise ConflictError("Diagnosis is still running for this incident; retry shortly", retryable=True)
+        try:
+            attempt = _begin_diagnosis(incident_id)
+        except _AlreadyRunning:
+            raise ConflictError("Diagnosis is already running for this incident", retryable=True) from None
     if isinstance(attempt, DecisionResult):
         return attempt
     try:
@@ -384,7 +407,8 @@ def _check_approval(incident, action, replicas, digest, require_digest):
 def execute_approved_action(incident_id: str, action, approved: bool, replicas: int | None = None,
                             approver: str = "operator", digest: str | None = None, require_digest: bool | None = None):
     if require_digest is None:
-        require_digest = remediation_backend.REMEDIATION_BACKEND != "mock"
+        # Any real provider or actuator makes this a real approval: name the reviewed proposal.
+        require_digest = remediation_backend.REMEDIATION_BACKEND != "mock" or "real" in configured_modes().values()
     with lock_for(incident_id):
         incident = _require(incident_id)
         action = DecisionAction(action)
@@ -584,6 +608,20 @@ def _recovery_window(incident):
 
 
 def validate_and_apply_recovery(incident_id: str):
+    try:
+        return _validate_recovery_once(incident_id)
+    except _AlreadyRunning:
+        # Join the measurement already running (e.g. the worker's poll) and use its outcome.
+        join = float(os.getenv("M4_RECOVERY_JOIN_SECONDS", "40"))
+        if not _wait_until_idle("recovery", incident_id, join):
+            raise ConflictError("A recovery measurement is still running; retry shortly", retryable=True) from None
+        try:
+            return _validate_recovery_once(incident_id)
+        except _AlreadyRunning:
+            raise ConflictError("A recovery measurement is already running for this incident", retryable=True) from None
+
+
+def _validate_recovery_once(incident_id: str):
     with lock_for(incident_id):
         incident = _require(incident_id)
         if incident["status"] in {IncidentStatus.RESOLVED.value, IncidentStatus.ESCALATED.value} and "_recovery" in incident:
@@ -597,7 +635,7 @@ def validate_and_apply_recovery(incident_id: str):
         if recovery_now() >= deadline:
             return finish_recovery_timeout(incident, deadline)
         if not _claim("recovery", incident_id):
-            raise ConflictError("A recovery measurement is already running for this incident", retryable=True)
+            raise _AlreadyRunning()
         token = _recovery_token(incident)
         service = incident_service(incident)
     try:

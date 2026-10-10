@@ -137,7 +137,7 @@ def test_two_incidents_progress_concurrently_through_slow_dependencies(monkeypat
     assert find_incident("INC-B")["status"] == "VALIDATING"
 
 
-def test_concurrent_duplicate_diagnosis_is_rejected_not_duplicated(monkeypatch):
+def test_concurrent_duplicate_diagnosis_joins_the_running_attempt(monkeypatch):
     create("INC-DUP")
     entered, release = threading.Event(), threading.Event()
     calls = []
@@ -154,13 +154,32 @@ def test_concurrent_duplicate_diagnosis_is_rejected_not_duplicated(monkeypatch):
     worker.start()
     try:
         assert entered.wait(2)
+        threading.Timer(0.3, release.set).start()
         response = client.post("/internal/decisions/build/INC-DUP", headers=OPERATOR)
+        assert response.status_code == 200 and response.json()["action"] == "ROLLBACK"
+    finally:
+        release.set()
+        worker.join(5)
+    assert calls == ["INC-DUP"]  # joined, never duplicated
+    assert find_incident("INC-DUP")["status"] == "AWAITING_APPROVAL"
+
+
+def test_join_is_bounded_and_reports_a_retryable_conflict(monkeypatch):
+    monkeypatch.setenv("M4_DIAGNOSIS_JOIN_SECONDS", "0.2")
+    create("INC-DUP2")
+    entered, release = threading.Event(), threading.Event()
+    real_rca = orchestrator.get_rca_result
+    monkeypatch.setattr(orchestrator, "get_rca_result",
+                        lambda incident_id: (entered.set(), release.wait(5), real_rca(incident_id))[2])
+    worker = threading.Thread(target=build_decision, args=("INC-DUP2",))
+    worker.start()
+    try:
+        assert entered.wait(2)
+        response = client.post("/internal/decisions/build/INC-DUP2", headers=OPERATOR)
         assert response.status_code == 409 and response.json()["detail"]["retryable"] is True
     finally:
         release.set()
         worker.join(5)
-    assert calls == ["INC-DUP"]
-    assert find_incident("INC-DUP")["status"] == "AWAITING_APPROVAL"
 
 
 def test_stale_diagnosis_result_is_discarded(monkeypatch):

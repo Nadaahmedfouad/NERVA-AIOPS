@@ -25,6 +25,13 @@ class FullHttpStack(HttpStack):
     def __init__(self, directory, database_url):
         super().__init__(directory, extra_members=("m2", "m5"))
         self.database_url = database_url
+        self.ui_token = uuid4().hex
+
+    def decide(self, incident_id, decision, digest=None, expected=200, token=True):
+        body = {"decision": decision, **({"proposal_digest": digest} if digest else {})}
+        headers = {"X-Nexus-Operator-Token": self.ui_token} if token else {}
+        return self.request("POST", "m5", f"/internal/ui/incidents/{incident_id}/approval",
+                            json=body, headers=headers, expected=expected)
 
     def start(self):
         self.extra_env.update(
@@ -36,6 +43,7 @@ class FullHttpStack(HttpStack):
             M5_MEMORY_BASE_URL=self.urls["m5"],
             M5_SHARED_API_TOKEN=self.approval_token,
             M5_OPERATOR_ID="controlled-test-operator",
+            M5_UI_OPERATOR_TOKEN=self.ui_token,
         )
         super().start()
         self.start_member("m5", REPO / "services/incident-memory", "app.main:app")
@@ -108,12 +116,11 @@ def build_rejected_incident(stack, snapshot, scenario, action):
         "features": {key: snapshot["metrics"][key]
                      for key in ("request_rate", "latency_p95_ms", "http_5xx_rate", "cpu")}})
     assert stack.request("POST", "m4", f"/internal/decisions/build/{incident_id}").json()["action"] == action
-    rejected = stack.request("POST", "m5", f"/internal/ui/incidents/{incident_id}/approval",
-                             json={"decision": "reject"}).json()
+    stack.decide(incident_id, "reject", token=False, expected=401)
+    rejected = stack.decide(incident_id, "reject").json()
     assert rejected == {"incident_id": incident_id, "status": "ESCALATED", "approved": False}
     stack.request("GET", "m4", f"/api/incidents/{incident_id}/actions/latest", expected=404)
-    stack.request("POST", "m5", f"/internal/ui/incidents/{incident_id}/approval",
-                  json={"decision": "approve"}, expected=409)
+    stack.decide(incident_id, "approve", digest="0" * 64, expected=409)
     bundle = stack.request("GET", "m5", f"/internal/ui/incidents/{incident_id}").json()
     assert bundle["rca"]["root_cause"] == scenario and bundle["action_result"] is None
     assert bundle["recovery_result"] is None and bundle["incident"]["status"] == "ESCALATED"
@@ -129,8 +136,10 @@ def build_rejected_incident(stack, snapshot, scenario, action):
 ])
 def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, phase, action):
     stack = full_stack
-    assert stack.request("GET", "m4", "/ready").json()["workflow_storage"] == {
-        "backend": "postgres", "durable": True, "error": None}
+    storage = stack.request("GET", "m4", "/ready").json()["workflow_storage"]
+    assert {key: storage[key] for key in ("backend", "durable", "error", "lease_lost")} == {
+        "backend": "postgres", "durable": True, "error": None, "lease_lost": False}
+    assert storage["lease_generation"] >= 1
     assert stack.request("GET", "m5", "/ready").json()["storage"] == "postgresql"
     assert stack.request("GET", "m5", "/internal/ui/config").json()["approval_enabled"] is True
     assert stack.request("GET", "m5", "/").headers["content-type"].startswith("text/html")
@@ -171,7 +180,7 @@ def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, 
     proposal = stack.request("GET", "m4", f"/api/incidents/{incident_id}/proposal").json()
     assert proposal["recommended_action"] == action
     assert proposal["parameters"] == ({"from_version": "v2", "to_version": "v1"}
-                                       if action == "ROLLBACK" else {"replicas": 9})
+                                       if action == "ROLLBACK" else {"replicas": 7})
     run_id = "RUN-FULL-HTTP-" + uuid4().hex
     stack.request("POST", "m4", f"/api/incidents/{incident_id}/experiment", json={
         "run_id": run_id, "scenario": "bad_deployment" if action == "ROLLBACK" else "traffic_spike",
@@ -179,11 +188,12 @@ def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, 
     (listed,) = stack.request("GET", "m5", "/internal/ui/overview").json()["incidents"]
     assert listed["incident_id"] == incident_id and listed["status"] == "AWAITING_APPROVAL"
     bundle = stack.request("GET", "m5", f"/internal/ui/incidents/{incident_id}").json()
-    assert bundle["source"] == "mixed" and bundle["decision"] == proposal
+    # Provenance is what was actually used: only real providers so far.
+    assert bundle["source"] == "real" and bundle["decision"] == proposal
     assert bundle["anomaly"] == stored_anomaly and bundle["rca"]["root_cause"] == scenario
     assert bundle["action_result"] is None and bundle["recovery_result"] is None
     assert bundle["evidence"]["baseline"] == baseline
-    assert set(bundle["provider_modes"].values()) == {"real", "mock"}
+    assert set(bundle["provider_modes"].values()) == {"real"} and "remediation" in bundle["provenance"]["unused"]
 
     rejected_id = build_rejected_incident(stack, snapshot, scenario, action)
     for headers in ({}, {"Authorization": "Bearer invalid-test-token"}):
@@ -195,8 +205,10 @@ def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, 
     assert restored["incident"] == bundle["incident"] and restored["anomaly"] == stored_anomaly
     assert restored["decision"] == proposal and restored["rca"] == bundle["rca"]
 
-    result = stack.request("POST", "m5", f"/internal/ui/incidents/{incident_id}/approval",
-                           json={"decision": "approve"}).json()
+    digest = restored["proposal_digest"]
+    assert len(digest) == 64
+    stack.decide(incident_id, "approve", expected=428)  # live approval must name the reviewed proposal
+    result = stack.decide(incident_id, "approve", digest=digest).json()
     assert result["incident_id"] == incident_id and result["action"] == action and result["status"] == "SUCCESS"
     executing = stack.request("GET", "m4", f"/api/incidents/{incident_id}/context").json()
     assert executing["incident"]["status"] == "VALIDATING"
@@ -207,8 +219,7 @@ def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, 
     restored = stack.request("GET", "m4", f"/api/incidents/{incident_id}/context").json()
     assert restored["decision"] == proposal and restored["action_result"] == result
     assert restored["workflow"]["recovery_deadline_at"] == deadline
-    assert stack.request("POST", "m5", f"/internal/ui/incidents/{incident_id}/approval",
-                         json={"decision": "approve"}).json() == result
+    assert stack.decide(incident_id, "approve", digest=digest).json() == result
     assert len(stack.rows("SELECT * FROM actions WHERE incident_id=%s", (incident_id,))) == 1
     assert stack.rows("SELECT approved FROM approvals WHERE incident_id=%s", (incident_id,)) == [{"approved": True}]
 
@@ -236,7 +247,8 @@ def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, 
                                           and job["last_error"] else None), detail="retained M5 outage retry")
     assert failed_delivery["status"] == "PENDING" and failed_delivery["delivered_at"] is None
     assert failed_delivery["payload"]["source"] == "mock"
-    assert failed_delivery["payload"]["memory"]["tags"] == ["source:mixed"]
+    tags = failed_delivery["payload"]["memory"]["tags"]
+    assert tags[0] == "source:mixed" and "used:remediation:mock" in tags and "used:rca:real" in tags
     stack.restart_member("m4")
     restored_job = stack.outbox(incident_id)
     assert restored_job["job_id"] == failed_delivery["job_id"]
@@ -260,8 +272,15 @@ def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, 
                                              "Idempotency-Key": delivered["job_id"]}).json()
     assert acknowledgement == {"status": "already_stored", "record": archived}
     stack.request("GET", "m5", f"/internal/memory/{incident_id}", params={"source": "real"}, expected=404)
-    assert stack.request("POST", "m5", "/internal/memory/search",
-                         json={"source": "real", "service": "payment-service"}).json()["results"] == []
+    # The mock-actuated workflow never enters real memory. Only the operator-rejected
+    # case (real inputs, no actuator, no mock effect) may: unresolved and not applied.
+    real = stack.request("POST", "m5", "/internal/memory/search",
+                         json={"source": "real", "service": "payment-service"}).json()["results"]
+    assert {item["record"]["memory"]["incident_id"] for item in real} <= {rejected_id}
+    for item in real:
+        memory = item["record"]["memory"]
+        assert item["record"]["resolved"] is False and memory["action_success"] is False
+        assert "decision:rejected_by_operator" in memory["tags"]
     stack.restart_member("m5")
     final = stack.request("GET", "m5", f"/internal/ui/incidents/{incident_id}").json()
     assert final["incident"]["status"] == "RESOLVED" and final["workflow"]["archive_status"] == "DELIVERED"
@@ -287,6 +306,8 @@ def test_full_stack_postgres_restart_recovery_and_archive(full_stack, scenario, 
     for table in ("anomalies", "rca_results", "decision_proposals", "approvals", "actions", "recovery_results", "timeline_events"):
         assert stack.rows(sql.SQL("SELECT * FROM {} WHERE incident_id=%s").format(sql.Identifier(table)), (incident_id,))
     rows = stack.rows("SELECT source,payload FROM m5_incident_memory")
-    assert rows and all(row["source"] == "mock" for row in rows)
+    assert rows and all(row["source"] == "mock" or json.loads(row["payload"])["memory"]["incident_id"] == rejected_id
+                        for row in rows)
+    assert [row["source"] for row in rows if json.loads(row["payload"])["memory"]["incident_id"] == incident_id] == ["mock"]
     assert len([row for row in rows if json.loads(row["payload"])["memory"]["incident_id"] == incident_id]) == 1
     assert not stack.rows("SELECT * FROM actions WHERE incident_id=%s", (rejected_id,))

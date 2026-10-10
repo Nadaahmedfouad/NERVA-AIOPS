@@ -197,7 +197,9 @@ def test_real_diagnosis_then_mock_actuator_after_restart_never_enters_real_memor
     # After restart the actuator is mock (configuration changed).
     monkeypatch.setattr(orchestrator, "configured_modes", lambda: {"rca": "real", "evidence": "real",
         "finops": "real", "recovery": "real", "remediation": "mock"})
-    assert client.post("/api/incidents/INC-DURABLE/approve").status_code == 200
+    assert client.post("/api/incidents/INC-DURABLE/approve").status_code == 428  # real inputs: digest required
+    digest = client.get("/api/incidents/INC-DURABLE/proposal").headers["X-Proposal-Digest"]
+    assert client.post("/api/incidents/INC-DURABLE/approve", headers={"X-Proposal-Digest": digest}).status_code == 200
     restored = find_incident("INC-DURABLE")
     assert restored["_provider_use"]["remediation"] == ["mock"]
     measured = {"incident_id": "INC-DURABLE", "success": True, "source": "m1",

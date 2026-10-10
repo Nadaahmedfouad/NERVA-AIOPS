@@ -38,6 +38,7 @@ class M2HttpStack(HttpStack):
             M2_HANDOFF_SETTLE_ALERTS="4",
             M2_CORRELATION_GAP_S="120",
             M2_JSON_LOGGING="off",
+            NEXUS_INGEST_TOKEN=self.ingest_token,
             # M2's shared contracts/config/logging live at the repository root.
             PYTHONPATH=os.pathsep.join(filter(None, (str(REPO), env.get("PYTHONPATH")))),
         )
@@ -152,6 +153,7 @@ def test_m1_m2_correlation_handoff_rca_and_decision(m2_stack, scenario, phase, a
     if action == "SCALE":
         finops = stack.request("GET", "m6", "/internal/finops/context",
                                params={"service": "payment-service"}).json()
-        low_risk = [option["replicas"] for option in finops["temporary_scale_options"] if option["risk"] == "LOW"]
-        assert proposal["parameters"]["replicas"] == min(low_risk) == 9
+        # The registry's max_scale_step (7) caps the step; the safest permitted target is MEDIUM risk.
+        options = {option["replicas"]: option["risk"] for option in finops["temporary_scale_options"]}
+        assert "LOW" not in options.values() and proposal["parameters"]["replicas"] == 7 == max(options)
     stack.request("GET", "m4", f"/api/incidents/{incident_id}/actions/latest", expected=404)
