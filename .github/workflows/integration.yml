@@ -21,13 +21,16 @@ jobs:
           -r services/anomaly-engine/requirements.txt -r services/root-cause-analysis/requirements.txt
           -r services/shared-nexus-api/requirements.txt -r services/finops-engine/requirements.txt
           -r services/incident-memory/requirements.txt
-      - name: Contracts, telemetry, anomaly engine and workload
-        run: python -m pytest tests/contract tests/m1 tests/m2 tests/test_k8s_traffic.py -q
+      - name: Contracts, telemetry, anomaly engine, registry, deployment wiring and workload
+        run: python -m pytest tests/contract tests/m1 tests/m2 tests/test_k8s_traffic.py tests/test_service_registry.py tests/test_deployment_wiring.py -q
       - name: RCA
         run: python -m pytest tests -q
         working-directory: services/root-cause-analysis
-      - name: Orchestration and durable local restart behavior
+      - name: Orchestration, audit regressions and durable local restart behavior
         run: python -m pytest tests -q
+        working-directory: services/shared-nexus-api
+      - name: Concurrency-sensitive M4 tests are stable (repeated)
+        run: for run in 1 2 3; do python -m pytest tests/test_concurrency_and_reconciliation.py tests/test_audit_reproductions.py -q || exit 1; done
         working-directory: services/shared-nexus-api
       - name: FinOps
         run: python -m pytest tests -q
@@ -41,6 +44,24 @@ jobs:
         run: node --test ui/copilot/storage.test.mjs ui/incident/view.test.mjs
       - name: Grounded-answer evaluation
         run: python services/incident-memory/scripts/evaluate.py
+      - name: Compose configuration resolves with every required secret
+        run: docker compose -f observability/docker-compose.yml --profile integration config --quiet
+        env:
+          NEXUS_DB_PASSWORD: ci-only-placeholder
+          NEXUS_APPROVAL_TOKEN: ci-only-approval
+          NEXUS_INGEST_TOKEN: ci-only-ingest
+          M5_OPERATOR_ID: ci-operator
+          M5_UI_OPERATOR_TOKEN: ci-only-ui
+      - name: PowerShell scripts parse
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($script in Get-ChildItem scripts -Filter *.ps1) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors)
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Error "$($script.Name): $($_.Message)" } }
+          }
+          if ($failed) { exit 1 }
 
   http-and-postgres:
     runs-on: ubuntu-latest
@@ -64,8 +85,8 @@ jobs:
           -r services/anomaly-engine/requirements.txt -r services/root-cause-analysis/requirements.txt
           -r services/shared-nexus-api/requirements.txt -r services/finops-engine/requirements.txt
           -r services/incident-memory/requirements.txt
-      - name: M4 PostgreSQL restart, lifecycle and outbox
-        run: python -m pytest tests/test_workflow_postgres.py -q
+      - name: M4 PostgreSQL restart, lifecycle, outbox, writer fencing and revisions
+        run: python -m pytest tests/test_workflow_postgres.py tests/test_postgres_lease.py -q
         working-directory: services/shared-nexus-api
         env:
           M4_TEST_DATABASE_URL: postgresql://nexus:ci-only-password@127.0.0.1:5432/nexus_test
