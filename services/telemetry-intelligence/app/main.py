@@ -151,12 +151,12 @@ def create_app(
         try:
             yield
         finally:
-            # The real telemetry provider owns its Prometheus HTTP pool.
-            # Injected mock providers need no lifecycle interface.
-            client = getattr(service.telemetry, "client", None)
-            close = getattr(client, "aclose", None)
-            if close is not None:
-                await close()
+            # Each real provider owns one HTTP pool; injected mocks need no lifecycle interface.
+            for owner in (getattr(service.telemetry, "client", None), service.loki,
+                          service.kubernetes, service.service_health):
+                close = getattr(owner, "aclose", None)
+                if close is not None:
+                    await close()
 
     api = FastAPI(
         title="NEXUS Telemetry Intelligence",

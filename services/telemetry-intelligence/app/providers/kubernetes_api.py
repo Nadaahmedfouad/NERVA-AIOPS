@@ -9,6 +9,7 @@ from ..errors import ProviderInvalidResponse, ProviderUnavailable
 from ..models import DeploymentEvent, KubernetesContext
 from .kubernetes import _build_deployment_event, _context_version, _deployment_version, _rollout_ready
 from .resources import application_resources
+from .pool import PooledClient
 
 
 class InClusterKubernetesClient:
@@ -27,6 +28,11 @@ class InClusterKubernetesClient:
         self.token_path = token_path
         self.ca_path = ca_path
         self.timeout = timeout
+        self._pool = None
+
+    async def aclose(self):
+        if self._pool is not None:
+            await self._pool.aclose()
 
     async def _get_json(
         self,
@@ -42,20 +48,18 @@ class InClusterKubernetesClient:
                 self.name, f"cluster CA certificate is missing: {self.ca_path}"
             )
 
-        token = self.token_path.read_text(encoding="utf-8").strip()
+        # Projected service-account tokens rotate: read per request, reuse the TLS pool.
+        token = (await asyncio.to_thread(self.token_path.read_text, encoding="utf-8")).strip()
         url = f"{self.base_url}{path}"
+        if self._pool is None:
+            self._pool = PooledClient(self.timeout, verify=str(self.ca_path))
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout,
-                verify=str(self.ca_path),
-                headers={"Authorization": f"Bearer {token}"},
-            ) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                payload = response.json()
-                if not isinstance(payload, dict):
-                    raise ValueError("Kubernetes response is not a JSON object")
-                return payload
+            response = await self._pool.get().get(url, params=params, headers={"Authorization": f"Bearer {token}"})
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Kubernetes response is not a JSON object")
+            return payload
         except httpx.TimeoutException as exc:
             raise ProviderUnavailable(self.name, f"request timed out: {url}") from exc
         except httpx.HTTPStatusError as exc:

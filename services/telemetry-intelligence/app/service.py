@@ -70,7 +70,8 @@ class M1Service:
 
     async def health(self) -> HealthResponse:
         dependencies: dict[str, DependencyHealth] = {}
-        storage_ok, storage_detail = self.store.ready()
+        # Filesystem probing can block on a slow volume; keep it off the event loop.
+        storage_ok, storage_detail = await asyncio.to_thread(self.store.ready)
         dependencies["evidence_storage"] = DependencyHealth(
             status="ok" if storage_ok else "unavailable", detail=storage_detail,
         )

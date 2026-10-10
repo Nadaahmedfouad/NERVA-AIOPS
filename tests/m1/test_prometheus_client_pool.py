@@ -121,3 +121,27 @@ class PrometheusClientPoolTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedProviderPoolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_health_and_loki_reuse_one_client_and_close_it(self):
+        from app.providers.health import ServiceHealthClient
+        from app.providers.loki import LokiClient
+
+        async def respond(request):
+            if request.url.path == "/health":
+                return httpx.Response(200, json={"status": "ok"})
+            return httpx.Response(200, text="ready")
+
+        transport = httpx.MockTransport(respond)
+        health = ServiceHealthClient({"payment-service": "http://payment"}, transport=transport)
+        loki = LokiClient("http://loki", transport=transport)
+        with patch("app.providers.pool.httpx.AsyncClient", wraps=httpx.AsyncClient) as factory:
+            for _ in range(5):
+                self.assertEqual(await health.check("payment-service"), (True, "status=ok"))
+                await loki._get("/ready")
+            self.assertEqual(factory.call_count, 2)  # one pool per provider, not per request
+        pools = [health._pool._http_client, loki._pool._http_client]
+        await health.aclose()
+        await loki.aclose()
+        self.assertTrue(all(client.is_closed for client in pools))

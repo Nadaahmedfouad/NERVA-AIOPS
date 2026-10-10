@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from ..errors import ProviderInvalidResponse, ProviderUnavailable
+from .pool import PooledClient
 
 
 @dataclass(frozen=True)
@@ -21,17 +22,21 @@ def _escape_label(value: str) -> str:
 class LokiClient:
     name = "loki"
 
-    def __init__(self, base_url: str, timeout: float = 5.0):
+    def __init__(self, base_url: str, timeout: float = 5.0,
+                 *, transport: httpx.AsyncBaseTransport | None = None):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._pool = PooledClient(timeout, transport)
+
+    async def aclose(self):
+        await self._pool.aclose()
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         url = f"{self.base_url}{path}"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                return response
+            response = await self._pool.get().get(url, params=params)
+            response.raise_for_status()
+            return response
         except httpx.TimeoutException as exc:
             raise ProviderUnavailable(self.name, f"request timed out: {url}") from exc
         except httpx.HTTPStatusError as exc:
