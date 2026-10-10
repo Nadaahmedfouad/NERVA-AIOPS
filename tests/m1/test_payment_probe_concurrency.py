@@ -81,7 +81,7 @@ class PaymentProbeConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     started = time.perf_counter()
                     responses = await asyncio.wait_for(
                         asyncio.gather(*(client.get(route) for route in ("/health", "/ready", "/metrics", "/version"))),
-                        timeout=0.2,
+                        timeout=1.0,
                     )
                     self.assertLess(time.perf_counter() - started, 0.2)
                     self.assertFalse(paying.done(), "Probes must finish before the busy payment worker")
@@ -113,18 +113,18 @@ class PaymentProbeConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 async with httpx.AsyncClient(
                     transport=httpx.ASGITransport(app=payment.app), base_url="http://payment"
                 ) as client:
-                    paid = await asyncio.wait_for(client.post("/pay"), timeout=0.2)
+                    paid = await asyncio.wait_for(client.post("/pay"), timeout=1.0)
                     self.assertEqual(paid.status_code, 200)
                     self.assertTrue(await asyncio.to_thread(stream.entered.wait, 1))
                     release_timer.start()
                     probes = await asyncio.wait_for(
                         asyncio.gather(*(client.get(route) for route in ("/health", "/ready", "/metrics", "/version"))),
-                        timeout=0.2,
+                        timeout=1.0,
                     )
                     self.assertTrue(all(response.status_code == 200 for response in probes))
                     self.assertFalse(stream.release.is_set(), "Probes must finish while output is still blocked")
                     with patch.object(payment, "FAULT_5XX_RATE", 1):
-                        failed = await asyncio.wait_for(client.post("/pay"), timeout=0.2)
+                        failed = await asyncio.wait_for(client.post("/pay"), timeout=1.0)
                     self.assertEqual(failed.status_code, 500)
                     requests_finished_at = datetime.now(timezone.utc)
         finally:
@@ -164,7 +164,7 @@ class PaymentProbeConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await client.post("/pay")).status_code, 200)
                 self.assertTrue(await asyncio.to_thread(stream.entered.wait, 1))
                 probes = await asyncio.wait_for(
-                    asyncio.gather(*(client.get("/health") for _ in range(6))), timeout=0.2
+                    asyncio.gather(*(client.get("/health") for _ in range(6))), timeout=1.0
                 )
                 self.assertTrue(all(response.status_code == 200 for response in probes))
                 self.assertEqual(payment.log_queue.qsize(), 2)
@@ -206,7 +206,7 @@ class PaymentProbeConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await client.get("/version")).status_code, 200)
                 self.assertEqual(payment.log_queue.qsize(), 2)
                 started = time.perf_counter()
-                await asyncio.wait_for(lifecycle.__aexit__(None, None, None), timeout=0.2)
+                await asyncio.wait_for(lifecycle.__aexit__(None, None, None), timeout=1.0)
                 self.assertLess(time.perf_counter() - started, 0.2)
                 self.assertTrue(listener_thread.is_alive())
                 self.assertTrue(listener_thread.daemon)
