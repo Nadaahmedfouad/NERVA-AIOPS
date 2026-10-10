@@ -1,7 +1,7 @@
 {
   "format": 1,
   "detector": "z_score_per_service",
-  "created": "2026-10-09T17:24:59Z",
+  "created": "2026-10-10T19:10:41Z",
   "trained_on": [
     "capture1.json",
     "capture2.json"
@@ -15,6 +15,12 @@
     "cpu",
     "memory",
     "replica_count"
+  ],
+  "context_features": [
+    "replica_count"
+  ],
+  "load_features": [
+    "request_rate"
   ],
   "alert": {
     "wobbles": 48.886821493066485,
@@ -45,5 +51,15 @@
         0.01
       ]
     }
+  },
+  "evaluation": {
+    "frozen_before_evaluation": true,
+    "held_out_fault_capture": "capture3.json",
+    "held_out_healthy_windows": [
+      "window-healthy-3rep-30rps.json",
+      "window-healthy-8rep-228rps.json"
+    ],
+    "report": "docs/evidence/hardening-2026-10-10/m2/heldout-evaluation.json",
+    "caveat": "The load_features rule was motivated by the two healthy windows; their false-alarm counts are not an independent test."
   }
 }

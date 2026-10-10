@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .features import FEATURE_ORDER
-from .model import DEFAULT_CONTEXT_FEATURES, ZScoreDetector, context_columns
+from .model import DEFAULT_CONTEXT_FEATURES, ZScoreDetector, context_columns, load_columns
 
 FORMAT_VERSION = 1
 DETECTOR_NAME = "z_score_per_service"
@@ -59,6 +59,9 @@ class Reference:
     trained_on: tuple[str, ...]
     created: str
     context_features: tuple[str, ...] = DEFAULT_CONTEXT_FEATURES
+    # Scored per replica and only above normal. Empty in references made before the rule.
+    load_features: tuple[str, ...] = ()
+    evaluation: dict | None = None
 
     @property
     def services(self) -> list[str]:
@@ -73,6 +76,8 @@ def save_reference(path: str | Path, reference: Reference) -> None:
         "trained_on": list(reference.trained_on),
         "feature_order": list(FEATURE_ORDER),
         "context_features": list(reference.context_features),
+        "load_features": list(reference.load_features),
+        **({"evaluation": reference.evaluation} if reference.evaluation else {}),
         "alert": {
             "wobbles": reference.alert.wobbles,
             "normal_max_wobbles": reference.alert.normal_max_wobbles,
@@ -99,9 +104,14 @@ def load_reference(path: str | Path) -> Reference:
     alert = body["alert"]
     # An older file has no such list; it gets the default (the replica count).
     context = tuple(body.get("context_features", DEFAULT_CONTEXT_FEATURES))
+    load = tuple(body.get("load_features", ()))
+    detector = ZScoreDetector.from_dict(body, ignore_columns=context_columns(context))
+    detector.load_columns = load_columns(load)
     return Reference(
-        detector=ZScoreDetector.from_dict(body, ignore_columns=context_columns(context)),
+        detector=detector,
         context_features=context,
+        load_features=load,
+        evaluation=body.get("evaluation"),
         alert=AlertLine(
             wobbles=float(alert["wobbles"]),
             normal_max_wobbles=alert.get("normal_max_wobbles"),

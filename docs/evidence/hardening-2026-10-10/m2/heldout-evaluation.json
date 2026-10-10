@@ -1,0 +1,91 @@
+{
+  "reference-before-2026-10-09.json": {
+    "trained_on": [
+      "capture1.json",
+      "capture2.json"
+    ],
+    "load_features": [],
+    "alert_line_wobbles": 48.886821493066485,
+    "captures": {
+      "capture3.json": {
+        "bad_deployment": {
+          "readings": 20,
+          "alerts": 19,
+          "recall": 0.95,
+          "detection_latency_s": 25.380151
+        },
+        "traffic_spike": {
+          "readings": 16,
+          "alerts": 15,
+          "recall": 0.938,
+          "detection_latency_s": 22.381527
+        },
+        "normal": {
+          "readings": 54,
+          "false_alarms": 0
+        }
+      }
+    },
+    "healthy_windows": {
+      "window-healthy-3rep-30rps.json": {
+        "readings": 181,
+        "alarms": 24,
+        "drivers": {
+          "latency_p95_ms": 21,
+          "request_rate": 3
+        }
+      },
+      "window-healthy-8rep-228rps.json": {
+        "readings": 133,
+        "alarms": 133,
+        "drivers": {
+          "request_rate": 133
+        }
+      }
+    }
+  },
+  "reference-candidate.json": {
+    "trained_on": [
+      "capture1.json",
+      "capture2.json"
+    ],
+    "load_features": [
+      "request_rate"
+    ],
+    "alert_line_wobbles": 48.886821493066485,
+    "captures": {
+      "capture3.json": {
+        "bad_deployment": {
+          "readings": 20,
+          "alerts": 19,
+          "recall": 0.95,
+          "detection_latency_s": 25.380151
+        },
+        "traffic_spike": {
+          "readings": 16,
+          "alerts": 15,
+          "recall": 0.938,
+          "detection_latency_s": 22.381527
+        },
+        "normal": {
+          "readings": 54,
+          "false_alarms": 0
+        }
+      }
+    },
+    "healthy_windows": {
+      "window-healthy-3rep-30rps.json": {
+        "readings": 181,
+        "alarms": 21,
+        "drivers": {
+          "latency_p95_ms": 21
+        }
+      },
+      "window-healthy-8rep-228rps.json": {
+        "readings": 133,
+        "alarms": 0,
+        "drivers": {}
+      }
+    }
+  }
+}

@@ -35,7 +35,7 @@ from pathlib import Path
 
 from ..evaluation.metrics import PreparedRun, prepare_all
 from ..evaluation.scenarios import Run
-from ..model import ZScoreDetector
+from ..model import DEFAULT_LOAD_FEATURES, ZScoreDetector, load_columns
 from ..reference import AlertLine, Reference, now_text, save_reference
 from .capture import capture_to_runs, load_capture
 
@@ -90,7 +90,7 @@ def leave_one_out_distances(prepared: list[PreparedRun], min_samples: int = MIN_
                 f"{target.run.run_id}: only {len(rows)} normal readings from the other runs; "
                 f"need {min_samples}. Add another capture."
             )
-        ruler = ZScoreDetector(min_samples=min_samples).fit({service: rows})
+        ruler = ZScoreDetector(min_samples=min_samples, load_columns=load_columns()).fit({service: rows})
         distances.append([float(d) for d in ruler.distance_many(service, target.full)])
     return distances
 
@@ -216,12 +216,13 @@ def train_reference(
     rows: dict[str, list] = {}
     for p in prepared:
         rows.setdefault(p.run.service, []).extend(normal_rows(p))
-    detector = ZScoreDetector(min_samples=min_samples).fit(rows)
+    detector = ZScoreDetector(min_samples=min_samples, load_columns=load_columns()).fit(rows)
     reference = Reference(
         detector=detector,
         alert=choice.alert,
         trained_on=tuple(Path(n).name for n in capture_paths),
         created=now_text(),
+        load_features=DEFAULT_LOAD_FEATURES,
     )
     save_reference(out_path, reference)
     counts = ", ".join(f"{s}: {len(r)} readings" for s, r in sorted(rows.items()))

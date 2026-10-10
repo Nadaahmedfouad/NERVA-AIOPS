@@ -44,6 +44,21 @@ MIN_TRAINING_SAMPLES = 50
 DEFAULT_CONTEXT_FEATURES = ("replica_count",)
 
 
+# Features that measure LOAD rather than health. They are scored per ready
+# replica and only when ABOVE normal. Measured on genuine healthy telemetry
+# (docs/evidence/hardening-2026-10-10/m2): a remediated service carrying 228
+# req/s on 8 replicas, or a quiet one at 30 req/s on 3, is not degraded, yet an
+# absolute two-sided request-rate ruler flagged every such reading. A spike that
+# exceeds the capacity of the replicas present still scores, as before.
+DEFAULT_LOAD_FEATURES = ("request_rate",)
+REPLICA_FEATURE = "replica_count"
+
+
+def load_columns(names: Sequence[str] = DEFAULT_LOAD_FEATURES) -> tuple[int, ...]:
+    """Column positions of the named load features in the 8-feature vector."""
+    return context_columns(names)
+
+
 def context_columns(names: Sequence[str] = DEFAULT_CONTEXT_FEATURES) -> tuple[int, ...]:
     """Column positions of the named features in the 8-feature vector."""
     unknown = [n for n in names if n not in FEATURE_ORDER]
@@ -180,6 +195,7 @@ class ZScoreDetector:
         self,
         min_samples: int = MIN_TRAINING_SAMPLES,
         ignore_columns: Sequence[int] | None = None,
+        load_columns: Sequence[int] = (),
     ) -> None:
         """`ignore_columns` are columns that are never scored (see
         DEFAULT_CONTEXT_FEATURES). None means: for the standard 8-feature
@@ -187,6 +203,9 @@ class ZScoreDetector:
         ignore nothing. Pass `()` to score every column."""
         self.min_samples = min_samples
         self.ignore_columns = None if ignore_columns is None else tuple(ignore_columns)
+        # Empty (the default) keeps the original absolute, two-sided scoring,
+        # so references trained before this rule score exactly as they did.
+        self.load_columns = tuple(load_columns)
         self._stats: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         self._counts: dict[str, int] = {}
 
@@ -201,7 +220,7 @@ class ZScoreDetector:
         stats = {}
         counts = {}
         for service, rows in healthy.items():
-            matrix = np.asarray(rows, dtype=float)
+            matrix = self._per_replica(np.asarray(rows, dtype=float))
             if len(matrix) < self.min_samples:
                 raise ValueError(
                     f"not enough healthy history for {service!r}: "
@@ -250,6 +269,15 @@ class ZScoreDetector:
             detector._counts[service] = int(entry.get("n", 0))
         return detector
 
+    def _per_replica(self, matrix: np.ndarray) -> np.ndarray:
+        if not self.load_columns or matrix.ndim != 2 or matrix.shape[1] != len(FEATURE_ORDER):
+            return matrix
+        replicas = np.maximum(matrix[:, FEATURE_ORDER.index(REPLICA_FEATURE)], 1.0)
+        out = matrix.copy()
+        for column in self.load_columns:
+            out[:, column] = matrix[:, column] / replicas
+        return out
+
     def explain(self, service: str, vector: Sequence[float]) -> list[float]:
         """How many usual wobbles each feature is from normal, in feature
         order. Missing or non-finite readings give zeros."""
@@ -262,11 +290,14 @@ class ZScoreDetector:
             raise UnknownServiceError(
                 f"no reference for service {service!r}; it needs healthy history first"
             ) from None
-        matrix = np.asarray(rows, dtype=float).reshape(len(rows), -1)
+        matrix = self._per_replica(np.asarray(rows, dtype=float).reshape(len(rows), -1))
         usable = np.isfinite(matrix).all(axis=1)
         out = np.zeros(matrix.shape)
         if usable.any():
             out[usable] = np.abs(matrix[usable] - mean) / spread
+            for column in self.load_columns:
+                # Load below normal is not a health problem; only excess load scores.
+                out[usable, column] = np.maximum(matrix[usable, column] - mean[column], 0.0) / spread[column]
             for column in self._ignored(matrix.shape[1]):
                 out[:, column] = 0.0          # recorded elsewhere, never scored
         return out

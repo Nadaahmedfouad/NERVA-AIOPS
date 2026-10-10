@@ -250,8 +250,8 @@ def test_the_alert_line_chosen_from_drill_data_is_unchanged_by_ignoring_the_repl
 
     original = model_mod.ZScoreDetector.__init__
     monkeypatch.setattr(model_mod.ZScoreDetector, "__init__",
-                        lambda self, min_samples=model_mod.MIN_TRAINING_SAMPLES, ignore_columns=None:
-                        original(self, min_samples, ()))                  # every column scored
+                        lambda self, min_samples=model_mod.MIN_TRAINING_SAMPLES, ignore_columns=None, load_columns=():
+                        original(self, min_samples, (), load_columns))    # every column scored
     line_scoring_everything = train_mod.choose_alert_line(prepared).alert
 
     assert line_with_context == line_scoring_everything
