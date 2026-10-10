@@ -60,6 +60,19 @@ def provenance():
             "remediation": "mock" if remediation_backend.REMEDIATION_BACKEND == "mock" else "real"}
 
 
+def record_provider_use(incident, role):
+    """Retain the providers actually used when configuration changes after restart."""
+    modes = incident.setdefault("_provenance", provenance())
+    incident.setdefault("_initial_provenance", deepcopy(modes))
+    mode = provenance()[role]
+    history = incident.setdefault("_provider_use", {})
+    used = history.setdefault(role, [modes.get(role, mode)])
+    if mode not in used:
+        used.append(mode)
+    # Any mock input/effect in this workflow permanently excludes real memory.
+    modes[role] = "mock" if "mock" in used else mode
+
+
 def incident_service(incident):
     services = incident.get("affected_services", [])
     if len(services) != 1 or not services[0]:
@@ -108,6 +121,7 @@ def build_decision(incident_id: str):
         service = incident_service(incident)
         rca = incident.get("_rca")
         if rca is None:
+            record_provider_use(incident, "rca")
             rca = get_rca_result(incident_id)
             if rca.get("incident_id") != incident_id:
                 raise IntegrationError("RCA result belongs to another incident", status_code=502, retryable=False)
@@ -120,6 +134,7 @@ def build_decision(incident_id: str):
         from app.decision_engine.engine import MIN_RCA_CONFIDENCE
         if rca["root_cause"] == "traffic_spike" and rca["confidence"] >= MIN_RCA_CONFIDENCE:
             try:
+                record_provider_use(incident, "finops")
                 finops = get_finops_context(service)
                 incident["_finops"] = finops
                 result = decide_from_rca(rca, finops)
@@ -137,6 +152,7 @@ def build_decision(incident_id: str):
                 raise IntegrationError("RCA component does not match the affected service", status_code=502, retryable=False)
             evidence = incident.get("_evidence")
             if evidence is None:
+                record_provider_use(incident, "evidence")
                 evidence = capture_incident_evidence(incident_id, service, rca["root_cause"],
                                                      incident_started_at=incident.get("started_at"))
                 incident["_evidence"] = evidence
@@ -246,7 +262,7 @@ def execute_approved_action(incident_id: str, action, approved: bool, replicas: 
         incident["_execution_intent"] = {"action_id": action_id, "incident_id": incident_id,
             "action": action.value, "replicas": replicas, "target": service,
             "started_at": started_at.isoformat(), "approver": approver, "status": "INTENT"}
-        incident.setdefault("_provenance", provenance())
+        record_provider_use(incident, "remediation")
         # The durable intent and captured preconditions precede the external side effect.
         update_incident_status(incident_id, IncidentStatus.EXECUTING, approved=True)
         expected_state = incident.get("_expected_state")
@@ -355,6 +371,7 @@ def validate_and_apply_recovery(incident_id: str):
         if recovery_now() >= deadline:
             return finish_recovery_timeout(incident, deadline)
         try:
+            record_provider_use(incident, "recovery")
             recovery = validate_recovery(incident_id, scenario=scenario, action_completed_at=completion,
                                          service=incident_service(incident))
         except IntegrationError:

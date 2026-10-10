@@ -154,6 +154,33 @@ def test_real_resolved_archive_cannot_fabricate_a_recovery(durable_state):
     assert "measured M1" in incident["_archive_blocked_reason"]
 
 
+def test_changed_actuator_after_restart_cannot_archive_mock_execution_as_real(durable_state):
+    incident = decide(create())
+    original = {key: "real" for key in orchestrator.provenance()}
+    incident["_provenance"] = original.copy()
+    persist_incidents()
+    restart()
+    assert client.post("/api/incidents/INC-DURABLE/approve").status_code == 200
+    restored = find_incident("INC-DURABLE")
+    assert restored["_initial_provenance"] == original
+    assert restored["_provenance"]["remediation"] == "mock"
+    assert restored["_provider_use"]["remediation"] == ["real", "mock"]
+    restored.update(status="RESOLVED", _recovery={"incident_id": "INC-DURABLE", "source": "m1",
+        "success": True, "details": {"recovered": True}})
+    enqueue_archive(restored)
+    assert restored["_archive_outbox"]["payload"]["source"] == "mock"
+    assert "source:mixed" in restored["_archive_outbox"]["payload"]["memory"]["tags"]
+
+
+def test_mock_provider_use_remains_recorded_after_configuration_becomes_real(monkeypatch):
+    incident = {"_provenance": {key: "real" for key in orchestrator.provenance()}}
+    orchestrator.record_provider_use(incident, "recovery")
+    monkeypatch.setattr(orchestrator.recovery_provider, "RECOVERY_PROVIDER", "real")
+    orchestrator.record_provider_use(incident, "recovery")
+    assert incident["_provenance"]["recovery"] == "mock"
+    assert incident["_provider_use"]["recovery"] == ["real", "mock"]
+
+
 @pytest.mark.parametrize("path,payload", [("/api/incidents/INC-DURABLE/approve", None),
     ("/api/incidents/INC-DURABLE/reject", None),
     ("/internal/remediation/execute", {"incident_id": "INC-DURABLE", "action": "ROLLBACK", "approved": True})])
