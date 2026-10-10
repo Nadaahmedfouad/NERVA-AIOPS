@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.api.incidents import find_incident, lock_for
-from app.providers import rca_provider, evidence_provider, finops_provider, recovery_provider
+from app.providers import rca_provider, evidence_provider, finops_provider, recovery_provider, resilient
 from app.remediation import executor
 from app.decision_engine.engine import choose_scale_option
 from app.orchestration import orchestrator
@@ -89,10 +89,19 @@ def real_data_clients(monkeypatch):
                             (finops_provider, "FINOPS_PROVIDER"), (recovery_provider, "RECOVERY_PROVIDER")):
         monkeypatch.setattr(module, setting, "real")
     monkeypatch.setattr(executor, "REMEDIATION_BACKEND", "mock")
+    monkeypatch.setenv("NEXUS_INGEST_TOKEN", "fixture-ingest-token")
     fixture = DependencyFixtures()
     monkeypatch.setattr(requests, "post", fixture.post)
     monkeypatch.setattr(requests, "get", fixture.get)
-    return TestClient(app), fixture
+
+    def transport(method, url, **kwargs):
+        # Explicit test transport; looks up requests.* at call time so a test
+        # can swap one dependency double for another mid-scenario.
+        kwargs.pop("headers", None)
+        return (requests.post if method == "POST" else requests.get)(url, **kwargs)
+
+    resilient.set_transport(transport)
+    return TestClient(app, headers={"X-Nexus-Ingest-Token": "fixture-ingest-token"}), fixture
 
 
 def create(client, identifier="INC-REAL"):

@@ -7,6 +7,7 @@ from app.api.incidents import (
     update_incident_status,
 )
 from app.state_machine.states import IncidentStatus
+from conftest import stamp_proposal
 
 client = TestClient(app)
 
@@ -97,7 +98,7 @@ def test_approve_incident(monkeypatch):
     )
 
     incident = find_incident("INC-APPROVE-001")
-    incident["proposed_action"] = "ROLLBACK"
+    stamp_proposal(incident, "ROLLBACK")
 
     # Mock Jenkins remediation to avoid modifying Kubernetes
     from app.remediation.models import RemediationResult
@@ -149,7 +150,7 @@ def test_approve_incident_too_early():
         "/api/incidents/INC-EARLY-001/approve"
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 409
 
 
 def test_reject_incident():

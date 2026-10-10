@@ -111,9 +111,11 @@ def test_request_and_limit_use_the_same_memory_unit():
 def test_risk_preserves_overload_above_contract_display_cap():
     result = context(preview(cpu=0.4))  # Actual usage is 400% of the 100m request.
     assert result.observed_cpu_pct == 100
-    assert all(option.risk == "HIGH" for option in result.temporary_scale_options if option.replicas <= 10)
-    low_risk = [option for option in result.temporary_scale_options if option.risk == "LOW"]
-    assert low_risk and min(option.replicas for option in low_risk) > 10
+    # Only registry-permitted targets are offered (payment-service: <= 10 replicas,
+    # <= 7 per step). Every one stays HIGH risk, so M4 escalates instead of scaling.
+    assert result.temporary_scale_options
+    assert all(option.replicas <= 10 and option.risk == "HIGH" for option in result.temporary_scale_options)
+    assert not [option for option in result.temporary_scale_options if option.risk == "LOW"]
 
 
 def test_real_saturation_adds_sufficient_capacity_with_truthful_risk():
@@ -126,8 +128,9 @@ def test_real_saturation_adds_sufficient_capacity_with_truthful_risk():
     assert result.observed_cpu_pct == 100
     assert options[2].risk == "HIGH"
     assert options[7].risk == "MEDIUM"
-    assert options[10].risk == "LOW"
-    assert options[10].estimated_cost_delta > options[7].estimated_cost_delta > 0
+    # 1 -> 10 would add 9 replicas; the registry permits at most 7 in one step.
+    assert 10 not in options and max(options) <= 1 + 7
+    assert options[7].estimated_cost_delta > options[2].estimated_cost_delta > 0
 
 
 def test_computed_targets_are_deduplicated_and_preserve_normal_options():
@@ -260,3 +263,15 @@ def test_live_recommendation_requires_explicit_limits():
 def test_bad_conversion_inputs_are_rejected(fraction, limit, resource_request):
     with pytest.raises(ValueError):
         m1_client.to_pct_of_request(fraction, limit, resource_request)
+
+
+def test_unregistered_service_receives_no_scale_options(monkeypatch):
+    from shared.registry import default_registry, set_registry
+    from app.scale_options import registry_filter
+    set_registry(default_registry())
+    try:
+        assert registry_filter("unregistered-service", 1, [2, 3]) == []
+        assert registry_filter("payment-service", 1, [2, 9, 12]) == [2]
+        assert registry_filter("payment-service", 1, [12]) == [8]  # largest permitted step instead
+    finally:
+        set_registry(None)

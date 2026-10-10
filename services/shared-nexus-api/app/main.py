@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 load_dotenv()
 
+import logging
+import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from app.api.incidents import router as incidents_router
@@ -11,19 +13,36 @@ from app.api.decisions import router as decisions_router
 from app.api.remediation import router as remediation_router
 from app.api.recovery import router as recovery_router
 from app.api.anomalies import router as anomalies_router
-import os
-from app.providers import rca_provider, finops_provider, evidence_provider, recovery_provider
-from app.remediation import executor
-from app.db import workflow_store
-from app.orchestration.lifecycle import restore_state, Worker
 from app.api.experiments import router as experiments_router
+from app.api.auth import approval_token, ingest_token
+from app.db import workflow_store
+from app.orchestration.lifecycle import restore_state, validate_settings, Worker
+from app.orchestration.provenance import configured_modes
+from app.providers import rca_provider, finops_provider, evidence_provider, recovery_provider
+from app.providers.errors import sanitize_message
+from app.remediation import executor
+from shared.registry import get_registry, registry_info
+
+logger = logging.getLogger(__name__)
+
+
+def validate_startup():
+    """Refuse to start with a configuration that real operation cannot run safely."""
+    real = executor.REMEDIATION_BACKEND != "mock"
+    if real and not approval_token():
+        raise RuntimeError("Real remediation requires a configured operator approval token")
+    if "real" in configured_modes().values() and not ingest_token():
+        raise RuntimeError("Real providers require NEXUS_INGEST_TOKEN for incident ingest and diagnosis")
+    if ingest_token() and approval_token() and ingest_token() == approval_token():
+        raise RuntimeError("NEXUS_INGEST_TOKEN must differ from the operator approval token")
+    get_registry()  # RegistryError: an explicitly configured registry must load.
+    validate_settings()
+    return real
 
 
 @asynccontextmanager
 async def lifespan(app):
-    real = executor.REMEDIATION_BACKEND != "mock"
-    if real and not (os.getenv("NEXUS_APPROVAL_TOKEN") or os.getenv("M5_SHARED_API_TOKEN")):
-        raise RuntimeError("Real remediation requires a configured operator approval token")
+    real = validate_startup()
     workflow_store.initialize(real_execution=real)
     lease = workflow_store.acquire_lease()
     worker = None
@@ -57,11 +76,30 @@ app.include_router(experiments_router)
 
 @app.exception_handler(workflow_store.StorageError)
 async def storage_error(request, exc):
-    return JSONResponse(status_code=503, content={"detail": str(exc), "retryable": True})
+    category = ("lease_lost" if isinstance(exc, workflow_store.LeaseLost)
+                else "conflict" if isinstance(exc, workflow_store.StorageConflict) else "storage_unavailable")
+    status = 409 if category == "conflict" else 503
+    return JSONResponse(status_code=status, content={"detail": {
+        "category": category, "message": sanitize_message(str(exc)), "retryable": category != "lease_lost"}})
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):
+    logger.exception("Unhandled M4 error on %s", request.url.path)
+    return JSONResponse(status_code=500, content={"detail": {
+        "category": "internal_error", "message": "Internal error; see M4 logs", "retryable": False}})
+
+
+@app.get("/live")
+def live():
+    """Liveness: the process can serve and still owns its writer lease. No I/O."""
+    if workflow_store.lease_lost():
+        return JSONResponse(status_code=503, content={"status": "lease_lost"})
+    return {"status": "alive"}
 
 
 @app.get("/health")
-async def health():
+def health():
     if workflow_store.lease_lost():
         return JSONResponse(status_code=503, content={
             "service": "shared-nexus-api",
@@ -77,6 +115,10 @@ async def health():
         "evidence": evidence_provider.EVIDENCE_PROVIDER, "recovery": recovery_provider.RECOVERY_PROVIDER,
     }
     storage = workflow_store.health()
+    from app.orchestration import archive
+    breakers = {"rca": rca_provider._breaker.state, "finops": finops_provider._breaker.state,
+                "evidence": evidence_provider._breaker.state, "recovery": recovery_provider._breaker.state,
+                "memory_archive": archive._archive_breaker.state}
     return {
         "service": "shared-nexus-api",
         "status": "unavailable" if storage["error"] else "degraded" if "mock" in modes.values() or executor.REMEDIATION_BACKEND == "mock" or not storage["durable"] else "ok",
@@ -85,12 +127,15 @@ async def health():
         "provider_modes": modes,
         "remediation_backend": executor.REMEDIATION_BACKEND,
         "workflow_storage": storage,
+        "dependency_breakers": breakers,
+        "service_registry": registry_info(),
+        "auth": {"operator_token_configured": bool(approval_token()), "ingest_token_configured": bool(ingest_token())},
     }
 
 
 @app.get("/ready")
-async def ready():
-    result = await health() if isinstance(health, type(ready)) else health()
+def ready():
+    result = health()
     if isinstance(result, JSONResponse):
         return result
     if result["status"] == "unavailable" or (executor.REMEDIATION_BACKEND != "mock" and result["status"] != "ok"):

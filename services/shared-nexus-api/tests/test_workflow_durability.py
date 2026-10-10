@@ -12,6 +12,7 @@ from app.db import workflow_store
 from app.orchestration.lifecycle import restore_state
 from app.orchestration.archive import enqueue_archive, deliver_archive
 from app.orchestration import orchestrator
+from app.orchestration import archive as archive_module
 
 client = TestClient(app)
 
@@ -30,9 +31,37 @@ def create(identifier="INC-DURABLE"):
     return find_incident(identifier)
 
 
+def operator_headers():
+    import os
+    token = os.getenv("NEXUS_APPROVAL_TOKEN")
+    return {"Authorization": "Bearer " + token} if token else {}
+
+
 def decide(incident):
-    assert client.post("/internal/decisions/build/" + incident["incident_id"]).status_code == 200
+    assert client.post("/internal/decisions/build/" + incident["incident_id"], headers=operator_headers()).status_code == 200
     return incident
+
+
+class Transport:
+    """Explicitly injected M5 transport double."""
+    def __init__(self, response):
+        self.return_value = response
+        self.call_args_list = []
+
+    def __call__(self, url, **kwargs):
+        from types import SimpleNamespace
+        self.call_args_list.append(SimpleNamespace(args=(url,), kwargs=kwargs))
+        return self.return_value
+
+    @property
+    def call_args(self):
+        return self.call_args_list[-1]
+
+
+def m5(response):
+    transport = Transport(response)
+    archive_module.set_transport(transport)
+    return transport
 
 
 def restart():
@@ -114,8 +143,7 @@ def test_archive_retry_survives_restart_and_requires_verified_acknowledgement(du
     incident["status"] = "ESCALATED"
     enqueue_archive(incident)
     first_payload = incident["_archive_outbox"]["payload"]
-    post = Mock(return_value=SimpleNamespace(status_code=503))
-    monkeypatch.setattr("app.orchestration.archive.requests.post", post)
+    post = m5(SimpleNamespace(status_code=503))
     assert deliver_archive("INC-DURABLE") is False
     restart()
     restored = find_incident("INC-DURABLE")
@@ -136,49 +164,69 @@ def test_invalid_acknowledgement_and_4xx_are_retained_not_silently_lost(durable_
     incident = decide(create())
     incident["status"] = "ESCALATED"
     enqueue_archive(incident)
-    post = Mock(return_value=SimpleNamespace(status_code=200, json=lambda: {"ok": True}))
-    monkeypatch.setattr("app.orchestration.archive.requests.post", post)
+    post = m5(SimpleNamespace(status_code=200, json=lambda: {"ok": True}))
     assert deliver_archive("INC-DURABLE") is False
     job = incident["_archive_outbox"]
     assert job["status"] == "PENDING"
     post.return_value = SimpleNamespace(status_code=422)
     assert deliver_archive("INC-DURABLE", datetime.fromisoformat(job["next_attempt_at"])) is False
     assert job["status"] == "BLOCKED" and job["last_error"] == "M5 returned HTTP 422"
+    assert len(post.call_args_list) == 2
 
 
 def test_real_resolved_archive_cannot_fabricate_a_recovery(durable_state):
     incident = decide(create())
-    incident.update(status="RESOLVED", _provenance={key: "real" for key in orchestrator.provenance()})
+    incident.update(status="RESOLVED", _provider_use={key: ["real"] for key in orchestrator.provenance()})
     enqueue_archive(incident)
     assert "_archive_outbox" not in incident
     assert "measured M1" in incident["_archive_blocked_reason"]
 
 
-def test_changed_actuator_after_restart_cannot_archive_mock_execution_as_real(durable_state):
-    incident = decide(create())
-    original = {key: "real" for key in orchestrator.provenance()}
-    incident["_provenance"] = original.copy()
+def test_real_diagnosis_then_mock_actuator_after_restart_never_enters_real_memory(durable_state, monkeypatch):
+    """Diagnose with real providers, restart with a mock actuator, then measure real recovery."""
+    from app.orchestration.provenance import record_provider_use
+    incident = create()
+    for role in ("rca", "evidence"):
+        record_provider_use(incident, role, "real")
     persist_incidents()
+    # Configuration for the diagnosis: real RCA/evidence. Proposal built from cached real data.
+    monkeypatch.setattr(orchestrator, "configured_modes", lambda: {"rca": "real", "evidence": "real",
+        "finops": "real", "recovery": "real", "remediation": "real"})
+    decide(incident)
     restart()
+    # After restart the actuator is mock (configuration changed).
+    monkeypatch.setattr(orchestrator, "configured_modes", lambda: {"rca": "real", "evidence": "real",
+        "finops": "real", "recovery": "real", "remediation": "mock"})
     assert client.post("/api/incidents/INC-DURABLE/approve").status_code == 200
     restored = find_incident("INC-DURABLE")
-    assert restored["_initial_provenance"] == original
-    assert restored["_provenance"]["remediation"] == "mock"
-    assert restored["_provider_use"]["remediation"] == ["real", "mock"]
-    restored.update(status="RESOLVED", _recovery={"incident_id": "INC-DURABLE", "source": "m1",
-        "success": True, "details": {"recovered": True}})
-    enqueue_archive(restored)
-    assert restored["_archive_outbox"]["payload"]["source"] == "mock"
-    assert "source:mixed" in restored["_archive_outbox"]["payload"]["memory"]["tags"]
+    assert restored["_provider_use"]["remediation"] == ["mock"]
+    measured = {"incident_id": "INC-DURABLE", "success": True, "source": "m1",
+                "details": {"incident_id": "INC-DURABLE", "recovered": True, "slo_restored": True,
+                            "before": {"latency_p95_ms": 900, "http_5xx_rate": 0.2},
+                            "after": {"latency_p95_ms": 80, "http_5xx_rate": 0.0}, "recovery_time_seconds": 95}}
+    monkeypatch.setattr(orchestrator, "validate_recovery", lambda *args, **kwargs: measured)
+    restart()
+    response = client.post("/internal/recovery/validate/INC-DURABLE")
+    assert response.status_code == 200 and response.json()["status"] == "RESOLVED"
+    restored = find_incident("INC-DURABLE")
+    assert restored["_provider_use"]["recovery"] == ["real"]
+    payload = restored["_archive_outbox"]["payload"]
+    assert payload["source"] == "mock" and "source:mixed" in payload["memory"]["tags"]
+    assert "used:remediation:mock" in payload["memory"]["tags"]
+    context = client.get("/api/incidents/INC-DURABLE/context").json()
+    assert context["source"] == "mixed" and context["provenance"]["modes"]["remediation"] == "mock"
 
 
-def test_mock_provider_use_remains_recorded_after_configuration_becomes_real(monkeypatch):
-    incident = {"_provenance": {key: "real" for key in orchestrator.provenance()}}
-    orchestrator.record_provider_use(incident, "recovery")
-    monkeypatch.setattr(orchestrator.recovery_provider, "RECOVERY_PROVIDER", "real")
-    orchestrator.record_provider_use(incident, "recovery")
+def test_provider_use_is_recorded_not_inferred_from_current_configuration(monkeypatch):
+    from app.orchestration.provenance import record_provider_use, workflow_source
+    incident = {"incident_id": "X"}
+    record_provider_use(incident, "recovery", "mock")
+    record_provider_use(incident, "recovery", "real")
     assert incident["_provenance"]["recovery"] == "mock"
-    assert incident["_provider_use"]["recovery"] == ["real", "mock"]
+    assert incident["_provider_use"]["recovery"] == ["mock", "real"]
+    # Overwriting the derived summary cannot launder a mock use.
+    incident["_provenance"] = {"recovery": "real"}
+    assert workflow_source(incident) == "mock"
 
 
 @pytest.mark.parametrize("path,payload", [("/api/incidents/INC-DURABLE/approve", None),
@@ -387,43 +435,41 @@ def test_archive_uses_existing_approval_token_for_authenticated_store(monkeypatc
     job = incident["_archive_outbox"]
     monkeypatch.delenv("M5_SHARED_API_TOKEN", raising=False)
     monkeypatch.setenv("NEXUS_APPROVAL_TOKEN", "controlled-secret")
-    post = Mock(return_value=SimpleNamespace(status_code=200, json=lambda: {"record": job["payload"]}))
-    monkeypatch.setattr("app.orchestration.archive.requests.post", post)
+    post = m5(SimpleNamespace(status_code=200, json=lambda: {"record": job["payload"]}))
     assert deliver_archive("INC-DURABLE") is True
     assert post.call_args.kwargs["headers"]["Authorization"] == "Bearer controlled-secret"
 
 
-def test_other_incident_cannot_publish_a_failed_mutation(durable_state, monkeypatch):
-    first_entered, release_first, second_started, second_saved = Event(), Event(), Event(), Event()
+def test_other_incident_commits_independently_of_a_failed_mutation(durable_state, monkeypatch):
+    """Per-incident commits: one incident's failed write is never published or persisted,
+    and it neither blocks nor rides along with another incident's write."""
+    first_entered, release_first = Event(), Event()
     save = workflow_store.save_incidents
+    written = []
     responses = {}
     def paused_save(items):
+        written.append(sorted(item["incident_id"] for item in items))
         if any(item["incident_id"] == "FIRST-FAILS" for item in items):
             first_entered.set()
             assert release_first.wait(3)
             raise workflow_store.StorageError("first commit failed")
-        second_saved.set()
         save(items)
     monkeypatch.setattr(workflow_store, "save_incidents", paused_save)
     def post(identifier):
-        if identifier == "SECOND-SUCCEEDS":
-            second_started.set()
         responses[identifier] = client.post("/api/incidents/", json={"incident_id": identifier,
             "severity": "high", "affected_services": ["payment-service"]}).status_code
     first = Thread(target=post, args=("FIRST-FAILS",))
-    second = Thread(target=post, args=("SECOND-SUCCEEDS",))
     first.start()
     try:
         assert first_entered.wait(3)
-        second.start()
-        assert second_started.wait(3)
-        assert not second_saved.wait(0.1)
+        post("SECOND-SUCCEEDS")  # Completes while FIRST is still inside its commit.
+        assert responses["SECOND-SUCCEEDS"] == 200
+        assert client.get("/api/incidents/FIRST-FAILS").status_code == 404
     finally:
         release_first.set()
         first.join(3)
-        if second.ident is not None:
-            second.join(3)
     assert responses == {"FIRST-FAILS": 503, "SECOND-SUCCEEDS": 200}
+    assert ["FIRST-FAILS", "SECOND-SUCCEEDS"] not in written
     restart()
     assert find_incident("FIRST-FAILS") is None
     assert find_incident("SECOND-SUCCEEDS") is not None

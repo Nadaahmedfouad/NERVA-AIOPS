@@ -25,6 +25,7 @@ ALLOWED_TRANSITIONS = {
     IncidentStatus.EXECUTING: {
         IncidentStatus.VALIDATING,
         IncidentStatus.FAILED_REMEDIATION,
+        IncidentStatus.ESCALATED,
     },
     IncidentStatus.VALIDATING: {
         IncidentStatus.RESOLVED,
@@ -48,6 +49,7 @@ def transition(
     approved: bool = False,
     recovery_validated: bool = False,
     reconciled: bool = False,
+    outcome_unknown: bool = False,
 ) -> IncidentStatus:
 
     if not can_transition(current_status, next_status):
@@ -82,5 +84,13 @@ def transition(
             "Cannot move from ESCALATED to VALIDATING without operator reconciliation"
         )
 
+    if (
+        current_status == IncidentStatus.EXECUTING
+        and next_status == IncidentStatus.ESCALATED
+        and not outcome_unknown
+    ):
+        raise ValueError(
+            "EXECUTING escalates directly only when the action outcome is unknown"
+        )
 
     return next_status

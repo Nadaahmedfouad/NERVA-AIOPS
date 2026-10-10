@@ -42,7 +42,8 @@ def test_proposal_ttl_expiry_rejects_approval(monkeypatch):
     # Attempt approve via API -> 409
     resp = client.post(f"/api/incidents/{incident_id}/approve")
     assert resp.status_code == 409
-    assert "Proposal has expired" in resp.json()["detail"]
+    assert resp.json()["detail"]["category"] == "proposal_expired"
+    assert "Proposal has expired" in resp.json()["detail"]["message"]
 
 
 def test_proposal_ttl_expiry_in_execute_action():
@@ -85,7 +86,7 @@ def test_ingest_auth_enforced_when_token_configured(monkeypatch):
     # 1. No token -> 401
     resp = client.post("/api/incidents/", json=payload)
     assert resp.status_code == 401
-    assert "Invalid or missing ingest authentication token" in resp.json()["detail"]
+    assert "Invalid or missing ingest authentication token" in resp.json()["detail"]["message"]
 
     # 2. Wrong token -> 401
     resp = client.post("/api/incidents/", json=payload, headers={"x-nexus-ingest-token": "wrong-token"})

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from app.main import app
-from app.api.incidents import update_incident_status
+from app.api.incidents import find_incident, update_incident_status
+from conftest import stamp_proposal
 from app.state_machine.states import IncidentStatus
 
 
@@ -38,6 +39,7 @@ def test_execute_rollback_with_approval():
         "INC-REMEDIATION-001",
         IncidentStatus.AWAITING_APPROVAL
     )
+    stamp_proposal(find_incident("INC-REMEDIATION-001"), "ROLLBACK")
     response = client.post(
         "/internal/remediation/execute",
        json={
@@ -91,6 +93,8 @@ def test_execute_scale_with_approval():
         "INC-REMEDIATION-002",
         IncidentStatus.AWAITING_APPROVAL
     )
+    incident = stamp_proposal(find_incident("INC-REMEDIATION-002"), "SCALE", replicas=3)
+    incident["_expected_state"] = {"version": "v1", "replicas": 1}
     response = client.post(
         "/internal/remediation/execute",
         json={

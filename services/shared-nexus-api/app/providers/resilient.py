@@ -4,9 +4,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-_orig_post = requests.post
-_orig_get = requests.get
-
 
 class CircuitOpen(requests.ConnectionError):
     """Raised when the circuit breaker is open due to repeated downstream failures."""
@@ -31,8 +28,20 @@ class Breaker:
                 return True
             if self._state == "open" and self._clock() - self._opened_at >= self.cooldown:
                 self._state = "half_open"  # exactly one caller becomes the probe
+                self._opened_at = self._clock()
+                return True
+            if self._state == "half_open" and self._clock() - self._opened_at >= self.cooldown:
+                # The previous probe never reported back; allow one new probe.
+                self._opened_at = self._clock()
                 return True
             return False
+
+    @property
+    def state(self) -> str:
+        with self._lock:
+            if self._state == "open" and self._clock() - self._opened_at >= self.cooldown:
+                return "half_open_ready"
+            return self._state
 
     def record(self, ok: bool) -> None:
         with self._lock:
@@ -66,18 +75,24 @@ def make_session(retry_post: bool = False, total_retries: int = 2) -> requests.S
     return session
 
 
+_transport = None
+
+
+def set_transport(transport=None):
+    """Explicitly inject a transport(method, url, **kwargs) for controlled tests; None restores HTTP."""
+    global _transport
+    _transport = transport
+
+
 def resilient_call(breaker: Breaker, session: requests.Session, method: str, url: str, **kwargs) -> requests.Response:
     """Execute an HTTP request protected by circuit breaker and retry session."""
-    if method == "POST" and requests.post != _orig_post:
-        return requests.post(url, **kwargs)
-    if method == "GET" and requests.get != _orig_get:
-        return requests.get(url, **kwargs)
-
+    if _transport is not None:
+        return _transport(method, url, **kwargs)
     if not breaker.allow():
         raise CircuitOpen(f"Circuit open for {url}")
     try:
         response = session.request(method, url, **kwargs)
-    except Exception:
+    except BaseException:
         breaker.record(False)
         raise
     breaker.record(response.status_code < 500)

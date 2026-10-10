@@ -25,21 +25,24 @@ def test_escalate_is_blocked():
         validate_action_allowed(DecisionAction.ESCALATE)
 
 def test_valid_replica_count_is_allowed():
-    validate_replica_count(3)
+    validate_replica_count(3, service="payment-service")
 
 
 def test_replica_count_below_minimum_is_blocked():
     with pytest.raises(ValueError):
-        validate_replica_count(0)
+        validate_replica_count(0, service="payment-service")
 
 
 def test_replica_count_above_maximum_is_blocked():
     with pytest.raises(ValueError):
-        validate_replica_count(100)
+        validate_replica_count(100, service="payment-service")
 
 
 def test_multi_service_guardrails():
     from app.remediation.guardrails import validate_service_allowed, validate_namespace_allowed
+    from shared.registry import load, set_registry
+    from conftest import MULTI_SERVICE_EXAMPLE
+    set_registry(load(MULTI_SERVICE_EXAMPLE))
 
     # Allowed services in registry
     validate_service_allowed("payment-service")

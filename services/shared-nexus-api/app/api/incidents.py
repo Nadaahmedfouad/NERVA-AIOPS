@@ -1,52 +1,137 @@
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from copy import deepcopy
-from threading import RLock
-from fastapi import APIRouter, HTTPException, Header
+from threading import RLock, local
+from fastapi import APIRouter, Header
 from pydantic import AwareDatetime, BaseModel, Field, field_validator
 from app.contracts import IncidentView
 from app.state_machine.states import IncidentStatus
 from app.state_machine.machine import transition
 from app.db import workflow_store
 from app.api.auth import verify_ingest_auth
+from app.providers.errors import api_error
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
+
+# Working copies, mutated only while holding that incident's lock.
 incidents = []
-_workflow_lock = RLock()
+# The last durably committed version of every incident. Replaced (never
+# mutated in place) so readers can iterate it without any lock.
 _committed_incidents = []
+# Short critical sections only: list membership, the committed list and the lock table.
+_registry_lock = RLock()
+_incident_locks = {}
+_held = local()
+
+
+def _held_ids():
+    if not hasattr(_held, "ids"):
+        _held.ids = []
+    return _held.ids
+
+
+def _committed_index():
+    return {item["incident_id"]: item for item in _committed_incidents}
+
+
+def committed_incident(incident_id):
+    """The last durable state; never a half-finished mutation."""
+    return next((item for item in _committed_incidents if item["incident_id"] == incident_id), None)
+
+
+def _publish(saved):
+    """Replace the committed copies of `saved` incidents with a new immutable list."""
+    global _committed_incidents
+    with _registry_lock:
+        by_id = {item["incident_id"]: item for item in saved}
+        updated = [by_id.pop(item["incident_id"], item) for item in _committed_incidents]
+        _committed_incidents = updated + [item for item in saved if item["incident_id"] in by_id]
 
 
 def mark_persisted():
-    """Publish one immutable checkpoint after the storage transaction succeeds."""
+    """Publish every working copy as committed (startup restore and tests)."""
     global _committed_incidents
-    _committed_incidents = deepcopy(incidents)
+    with _registry_lock:
+        _committed_incidents = deepcopy(incidents)
 
 
-def restore_persisted():
-    # Preserve incident references held by callers while discarding unsaved fields.
-    existing = {item["incident_id"]: item for item in incidents}
-    restored = []
-    for saved in _committed_incidents:
-        item = existing.get(saved["incident_id"], {})
-        item.clear()
-        item.update(deepcopy(saved))
-        restored.append(item)
-    incidents[:] = restored
+def restore_persisted(incident_ids=None):
+    """Discard unsaved working changes, keeping references held by callers."""
+    with _registry_lock:
+        committed = _committed_index()
+        targets = set(incident_ids) if incident_ids is not None else {item["incident_id"] for item in incidents}
+        kept = []
+        for item in incidents:
+            identity = item["incident_id"]
+            if identity in targets:
+                saved = committed.get(identity)
+                if saved is None:
+                    continue  # Never committed: a failed create disappears.
+                item.clear()
+                item.update(deepcopy(saved))
+            kept.append(item)
+        if incident_ids is None:
+            known = {item["incident_id"] for item in kept}
+            kept.extend(deepcopy(item) for item in _committed_incidents if item["incident_id"] not in known)
+        incidents[:] = kept
+
+
+def _dirty(ids):
+    committed = _committed_index()
+    changed = []
+    for identity in dict.fromkeys(ids):
+        item = find_incident(identity)
+        if item is not None and item != committed.get(identity):
+            changed.append(item)
+    return changed
+
+
+def _prepare(items):
+    """Deep copies carrying the next revision; working copies change only after commit."""
+    prepared = []
+    for item in items:
+        snapshot = deepcopy(item)
+        snapshot["_revision"] = int(item.get("_revision") or 0) + 1
+        prepared.append(snapshot)
+    return prepared
+
+
+def _commit(items, write):
+    prepared = _prepare(items)
+    try:
+        write(prepared)
+    except workflow_store.StorageError:
+        restore_persisted([item["incident_id"] for item in items])
+        raise
+    for item, snapshot in zip(items, prepared):
+        item["_revision"] = snapshot["_revision"]
+    _publish(prepared)
+
 
 def persist_incidents():
-    with _workflow_lock:
-        try:
-            workflow_store.save_incidents(incidents)
-        except workflow_store.StorageError:
-            restore_persisted()
-            raise
-        mark_persisted()
+    """Commit the incidents this thread is mutating, each against its revision.
+
+    Inside lock_for() only the locked incidents are written. Outside any lock
+    (controlled tests and restore), every changed incident is committed under
+    its own lock.
+    """
+    held = list(dict.fromkeys(_held_ids()))
+    if held:
+        items = _dirty(held)
+        if items:
+            _commit(items, workflow_store.save_incidents)
+        return
+    for identity in [item["incident_id"] for item in list(incidents)]:
+        with lock_for(identity):
+            items = _dirty([identity])
+            if items:
+                _commit(items, workflow_store.save_incidents)
 
 
 def persist_anomaly(payload, incident_id):
-    with _workflow_lock:
-        workflow_store.save_anomaly(payload, incident_id, incidents)
-        mark_persisted()
+    items = _dirty([incident_id])
+    _commit(items, lambda prepared: workflow_store.save_anomaly(payload, incident_id, prepared))
+
 
 class IncidentCreate(BaseModel):
     incident_id: str = Field(min_length=1)
@@ -80,21 +165,23 @@ class IncidentCreate(BaseModel):
 
 @contextmanager
 def lock_for(incident_id: str, timeout: float | None = None):
-    # A save projects the complete in-process snapshot. Serialize mutation units
-    # so another incident cannot publish half of an unfinished workflow change.
-    acquired = _workflow_lock.acquire(timeout=timeout if timeout is not None else -1)
+    """Serialize mutations of ONE incident; other incidents proceed independently."""
+    with _registry_lock:
+        lock = _incident_locks.setdefault(incident_id, RLock())
+    acquired = lock.acquire(timeout=timeout if timeout is not None else -1)
     if not acquired:
-        from app.providers.errors import IntegrationError
-        raise IntegrationError("Another operation is running for this incident; retry shortly",
-                               status_code=409, retryable=True)
+        from app.providers.errors import ConflictError
+        raise ConflictError("Another operation is running for this incident; retry shortly", retryable=True)
+    held = _held_ids()
+    held.append(incident_id)
     try:
         yield
     except workflow_store.StorageError:
-        restore_persisted()
+        restore_persisted([incident_id])
         raise
     finally:
-        _workflow_lock.release()
-
+        held.pop()
+        lock.release()
 
 
 @contextmanager
@@ -104,7 +191,8 @@ def incident_operation(incident_id: str, wait: float = 5.0):
 
 
 def find_incident(incident_id: str):
-    return next((incident for incident in incidents if incident["incident_id"] == incident_id), None)
+    with _registry_lock:
+        return next((incident for incident in incidents if incident["incident_id"] == incident_id), None)
 
 
 def public_incident(incident):
@@ -144,55 +232,79 @@ def create_incident(
     verify_ingest_auth(authorization, x_nexus_ingest_token, x_nexus_sender)
     with lock_for(incident.incident_id):
         if find_incident(incident.incident_id) is not None:
-            raise HTTPException(status_code=409, detail="Incident already exists")
+            raise api_error(409, "conflict", "Incident already exists")
         incident_data = incident.model_dump(mode="json")
         incident_data["status"] = IncidentStatus.DETECTED.value
         incident_data["detected_at"] = datetime.now(timezone.utc).isoformat()
-        incidents.append(incident_data)
+        with _registry_lock:
+            incidents.append(incident_data)
         persist_incidents()
         return public_incident(incident_data)
 
 
 @router.get("/", response_model=list[IncidentView])
 def list_incidents():
-    # M3 calls these reads while M4 holds the mutation lock awaiting RCA.
-    # Read the last committed checkpoint without acquiring that lock.
+    # Reads never wait for a mutation: they see the last committed checkpoint.
     return [public_incident(incident) for incident in _committed_incidents]
 
 
 @router.get("/{incident_id}", response_model=IncidentView)
 def get_incident(incident_id: str):
-    incident = next((item for item in _committed_incidents if item["incident_id"] == incident_id), None)
+    incident = committed_incident(incident_id)
     if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
+        raise api_error(404, "not_found", "Incident not found")
     return public_incident(incident)
+
+
+def _deadline_view(incident):
+    deadline = incident.get("recovery_deadline_at")
+    if not deadline:
+        return None
+    try:
+        remaining = (datetime.fromisoformat(deadline) - datetime.now(timezone.utc)).total_seconds()
+    except (TypeError, ValueError):
+        return {"at": deadline, "valid": False}
+    return {"at": deadline, "valid": True, "seconds_remaining": max(0.0, round(remaining, 1)),
+            "expired": remaining <= 0}
 
 
 @router.get("/{incident_id}/context")
 def get_incident_context(incident_id: str):
     from app.api.anomalies import anomalies
-    from app.orchestration.orchestrator import provenance
+    from app.orchestration.provenance import workflow_source, provenance_view
+    from app.orchestration.proposals import proposal_digest, proposal_state
     from app.remediation.audit import audit_records
-    incident = next((item for item in _committed_incidents if item["incident_id"] == incident_id), None)
+    incident = committed_incident(incident_id)
     if incident is None:
-        incident = find_incident(incident_id)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
+        raise api_error(404, "not_found", "Incident not found")
     linked = [anomalies[key] for key in incident.get("anomaly_ids", []) if key in anomalies]
     recovery = incident.get("_recovery") or incident.get("_last_recovery_measurement") or {}
-    modes = incident.get("_provenance") or provenance()
-    sources = set(modes.values())
-    source = "real" if sources == {"real"} else "mock" if sources == {"mock"} else "mixed"
+    proposal = incident.get("_proposal")
+    outbox = incident.get("_archive_outbox") or {}
+    missing = [name for name, value in (
+        ("anomaly", linked), ("rca", incident.get("_rca")), ("evidence", incident.get("_evidence")),
+        ("decision", proposal), ("action_result", incident.get("_action_result")),
+        ("recovery_result", recovery.get("details"))) if not value]
     return {"incident": public_incident(incident), "anomaly": linked[-1] if linked else None,
-        "anomalies": linked, "rca": incident.get("_rca"), "decision": incident.get("_proposal"),
+        "anomalies": linked, "rca": incident.get("_rca"), "decision": proposal,
+        "proposal_digest": proposal_digest(incident) if proposal else None,
+        "proposal_state": proposal_state(incident),
         "action_result": incident.get("_action_result"), "recovery_result": recovery.get("details"),
         "recovery_validation": recovery or None, "finops_context": incident.get("_finops"),
         "deployment_event": (incident.get("_evidence") or {}).get("deployment_event"),
-        "evidence": incident.get("_evidence"), "source": source, "provider_modes": modes,
-        "workflow": {"action_completed_at": incident.get("action_completed_at"),
+        "evidence": incident.get("_evidence"), "source": workflow_source(incident),
+        "provider_modes": provenance_view(incident)["modes"], "provenance": provenance_view(incident),
+        "missing": missing,
+        "workflow": {"revision": incident.get("_revision", 0),
+            "action_completed_at": incident.get("action_completed_at"),
             "recovery_deadline_at": incident.get("recovery_deadline_at"),
+            "recovery_deadline": _deadline_view(incident),
             "execution_ambiguous": bool(incident.get("_execution_ambiguous")),
-            "archive_status": (incident.get("_archive_outbox") or {}).get("status"),
-            "archive_error": (incident.get("_archive_outbox") or {}).get("last_error") or incident.get("_archive_blocked_reason")},
-        "audit": [record for record in audit_records if record["incident_id"] == incident_id]}
-
+            "execution_intent": incident.get("_execution_intent"),
+            "reconciliation": incident.get("_reconciliation"),
+            "diagnosis_error": incident.get("_diagnosis_last_error"),
+            "recovery_error": incident.get("_recovery_last_error"),
+            "archive_status": outbox.get("status"),
+            "archive_attempts": outbox.get("attempts"),
+            "archive_error": outbox.get("last_error") or incident.get("_archive_blocked_reason")},
+        "audit": [record for record in list(audit_records) if record["incident_id"] == incident_id]}

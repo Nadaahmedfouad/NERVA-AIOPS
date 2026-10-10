@@ -5,7 +5,7 @@ from app.decision_engine.models import DecisionAction
 from app.orchestration.orchestrator import execute_approved_action
 from app.remediation.models import RemediationResult
 from app.remediation.audit import audit_records
-from app.providers.errors import as_http_error
+from app.providers.errors import api_error, as_http_error
 from app.api.auth import verify_approver_auth
 
 router = APIRouter(prefix="/internal/remediation", tags=["remediation"])
@@ -24,16 +24,17 @@ def execute(
     authorization: str | None = Header(default=None),
     x_nexus_approver_token: str | None = Header(default=None),
     x_nexus_approver: str | None = Header(default="operator"),
+    x_proposal_digest: str | None = Header(default=None),
 ):
     approver = verify_approver_auth(authorization, x_nexus_approver_token, x_nexus_approver)
     if find_incident(request.incident_id) is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
+        raise api_error(404, "not_found", "Incident not found")
     try:
         return execute_approved_action(request.incident_id, request.action, request.approved, request.replicas,
-                                       approver=approver)
+                                       approver=approver, digest=x_proposal_digest)
     except ValueError as exc:
         raise as_http_error(exc) from exc
 
 @router.get("/audit")
 def get_audit_records():
-    return audit_records
+    return list(audit_records)

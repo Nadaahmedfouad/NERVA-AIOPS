@@ -1,7 +1,31 @@
 from . import cost_model
+import logging
 import math
 from .models import FinOpsContext, ScaleOption, ScaleOptionsRequest
 from .resource_config import finite_number
+
+log = logging.getLogger("finops-engine")
+
+
+def registry_filter(service: str, current: int, candidates: list[int]) -> list[int]:
+    """Keep only targets the shared service registry permits (same policy M4 enforces).
+
+    An unregistered service, or one whose policy forbids SCALE, gets no options:
+    M6 never advertises a step M4 would refuse to execute.
+    """
+    from shared.registry import get_registry
+    registry = get_registry()
+    spec = registry.get(service)
+    if spec is None or "SCALE" not in spec.remediation.actions:
+        log.info("No scale options for %s: not permitted by the service registry", service)
+        return []
+    policy = spec.remediation
+    allowed = [c for c in candidates if registry.scale_allowed(service, current, c) is None]
+    capped = min(current + policy.max_scale_step, policy.max_replicas)
+    # If every computed target exceeds the step/bounds, offer the largest permitted step instead.
+    if not allowed and capped > current and registry.scale_allowed(service, current, capped) is None:
+        allowed = [capped]
+    return sorted(set(allowed))
 
 
 def risk_for(projected_cpu_pct: float) -> str:
@@ -21,7 +45,7 @@ def build_scale_options(req: ScaleOptionsRequest, *, observed_cpu_pct: float | N
         # Add enough capacity to offer real headroom when a fixed doubling is
         # insufficient. M4 still enforces its replica cap and risk policy.
         candidates += [math.ceil((observed / target) * current) for target in (70, 50)]
-    candidates = sorted({c for c in candidates if c > current})
+    candidates = registry_filter(req.service, current, sorted({c for c in candidates if c > current}))
     base = cost_model.cost_per_hour(current, req.cpu_request_m, req.memory_request_mb)
 
     options = []

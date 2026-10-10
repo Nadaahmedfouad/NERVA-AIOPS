@@ -134,6 +134,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_event_key ON approvals(event_key)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_event_key ON recovery_results(event_key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_event_key ON timeline_events(event_key);
 
+-- Optimistic concurrency: every incident write names the revision it replaces.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
+
+-- Writer fencing: a new owner increments the generation; writes by an older
+-- owner then fail inside their own transaction instead of silently landing.
+CREATE TABLE IF NOT EXISTS m4_writer_lease (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    generation BIGINT NOT NULL,
+    owner TEXT NOT NULL,
+    acquired_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS memory_outbox (
     job_id TEXT PRIMARY KEY,
     incident_id TEXT NOT NULL,

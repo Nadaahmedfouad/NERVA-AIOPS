@@ -1,44 +1,48 @@
-from fastapi import APIRouter, HTTPException, Header
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Literal
-from uuid import uuid4
-from pydantic import BaseModel
-from app.api.incidents import find_incident, lock_for, persist_incidents, update_incident_status, incident_operation, _committed_incidents
-from app.api.auth import verify_approver_auth
+from fastapi import APIRouter, Header, Response
+from pydantic import BaseModel, Field, field_validator
+from app.api.incidents import committed_incident, find_incident, lock_for, persist_incidents, public_incident
+from app.api.auth import verify_approver_auth, require_explicit_identity
 from app.contracts import ActionResult, DecisionProposal, IncidentView
 from app.state_machine.states import IncidentStatus
-from app.orchestration.orchestrator import execute_approved_action
+from app.state_machine.machine import transition
+from app.orchestration.orchestrator import execute_approved_action, reconcile_execution
+from app.orchestration.proposals import digest_of, proposal_digest as incident_proposal_digest
 from app.decision_engine.models import DecisionAction
 from app.remediation.audit import add_audit_record
-from app.providers.errors import as_http_error
+from app.providers.errors import ConflictError, api_error, as_http_error
 
 router = APIRouter(prefix="/api/incidents", tags=["approvals"])
 
+
+def proposal_digest(proposal: dict) -> str:
+    """Compatibility helper: digest of a bare proposal (no diagnosis timestamp)."""
+    return digest_of(proposal)
+
+
+def _not_found(what="Incident"):
+    return api_error(404, "not_found", f"{what} not found")
+
+
 @router.get("/{incident_id}/proposal", response_model=DecisionProposal)
-def get_proposal(incident_id: str):
-    incident = next((item for item in _committed_incidents if item["incident_id"] == incident_id), None)
-    if incident is None:
-        incident = find_incident(incident_id)
+def get_proposal(incident_id: str, response: Response):
+    incident = committed_incident(incident_id)
     if incident is None or "_proposal" not in incident:
-        raise HTTPException(status_code=404, detail="Decision proposal not found")
+        raise _not_found("Decision proposal")
+    # The frozen DecisionProposal body is unchanged; the digest an approval
+    # must quote travels as a header (and in /context).
+    response.headers["X-Proposal-Digest"] = incident_proposal_digest(incident)
     return incident["_proposal"]
+
 
 @router.get("/{incident_id}/actions/latest", response_model=ActionResult)
 def get_action_result(incident_id: str):
-    incident = next((item for item in _committed_incidents if item["incident_id"] == incident_id), None)
-    if incident is None:
-        incident = find_incident(incident_id)
+    incident = committed_incident(incident_id)
     if incident is None or "_action_result" not in incident:
-        raise HTTPException(status_code=404, detail="Action result not found")
+        raise _not_found("Action result")
     return incident["_action_result"]
 
-
-
-import hashlib
-import json
-
-def proposal_digest(proposal: dict) -> str:
-    return hashlib.sha256(json.dumps(proposal, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 @router.post("/{incident_id}/approve", response_model=ActionResult)
 def approve_incident(
@@ -49,61 +53,56 @@ def approve_incident(
     x_proposal_digest: str | None = Header(default=None),
 ):
     approver = verify_approver_auth(authorization, x_nexus_approver_token, x_nexus_approver)
-    with incident_operation(incident_id):
+    # Read the proposal under the lock, then execute WITHOUT holding it: the
+    # orchestrator re-validates everything atomically before its durable intent.
+    with lock_for(incident_id, timeout=5.0):
         incident = find_incident(incident_id)
         if incident is None:
-            raise HTTPException(status_code=404, detail="Incident not found")
-        if x_proposal_digest is not None:
-            current_proposal = incident.get("_proposal") or {}
-            if x_proposal_digest != proposal_digest(current_proposal):
-                raise HTTPException(status_code=409, detail="The proposal changed since review; reload and review again")
-        created_at_raw = incident.get("_proposal_created_at")
-        if created_at_raw:
-            try:
-                from app.config import PROPOSAL_TTL_SECONDS
-                created_at = datetime.fromisoformat(created_at_raw)
-                if (datetime.now(timezone.utc) - created_at).total_seconds() > PROPOSAL_TTL_SECONDS:
-                    raise HTTPException(status_code=409, detail="Proposal has expired; please re-diagnose to capture fresh state")
-            except (ValueError, TypeError):
-                pass
+            raise _not_found()
         proposed_action = incident.get("proposed_action")
-        if proposed_action is None:
-            raise HTTPException(status_code=400, detail="No proposed action found for this incident")
-        try:
-            action = DecisionAction(proposed_action)
-            replicas = None
-            if action == DecisionAction.SCALE:
-                scale_option = incident.get("scale_option")
-                if not isinstance(scale_option, dict):
-                    raise ValueError("No valid scale option found for this incident")
-                replicas = scale_option.get("replicas")
-                if isinstance(replicas, bool) or not isinstance(replicas, int) or not 1 <= replicas <= 10:
-                    raise ValueError("Replica count must be an integer between 1 and 10")
-            execute_approved_action(incident_id, action, approved=True, replicas=replicas, approver=approver)
-            return incident["_action_result"]
-        except ValueError as exc:
-            raise as_http_error(exc) from exc
+        scale_option = incident.get("scale_option")
+    if proposed_action is None:
+        raise api_error(409, "conflict", "No proposed action exists for this incident")
+    try:
+        action = DecisionAction(proposed_action)
+        replicas = None
+        if action == DecisionAction.SCALE:
+            if not isinstance(scale_option, dict):
+                raise ValueError("No valid scale option found for this incident")
+            replicas = scale_option.get("replicas")
+        execute_approved_action(incident_id, action, approved=True, replicas=replicas, approver=approver,
+                                digest=x_proposal_digest)
+    except ValueError as exc:
+        raise as_http_error(exc) from exc
+    return committed_incident(incident_id)["_action_result"]
+
 
 @router.post("/{incident_id}/reject")
 def reject_incident(incident_id: str, authorization: str | None = Header(default=None),
                     x_nexus_approver_token: str | None = Header(default=None),
-                    x_nexus_approver: str | None = Header(default="operator")):
+                    x_nexus_approver: str | None = Header(default="operator"),
+                    x_proposal_digest: str | None = Header(default=None)):
     approver = verify_approver_auth(authorization, x_nexus_approver_token, x_nexus_approver)
-    with lock_for(incident_id):
+    with lock_for(incident_id, timeout=5.0):
         incident = find_incident(incident_id)
         if incident is None:
-            raise HTTPException(status_code=404, detail="Incident not found")
+            raise _not_found()
         if incident["status"] != IncidentStatus.AWAITING_APPROVAL.value:
-            raise HTTPException(status_code=409, detail="Only an awaiting approval proposal can be rejected")
+            raise api_error(409, "conflict", "Only an awaiting approval proposal can be rejected")
+        if x_proposal_digest is not None and x_proposal_digest != incident_proposal_digest(incident):
+            raise api_error(409, "conflict", "The proposal changed since it was reviewed; reload and review again")
         try:
             add_audit_record(incident_id, "MANUAL_APPROVAL_REJECTED", {"approver": approver,
                 "action": incident.get("proposed_action")})
-            updated = update_incident_status(incident_id, IncidentStatus.ESCALATED)
+            # Rejection performs no infrastructure action: status and audit only.
+            incident["status"] = transition(IncidentStatus.AWAITING_APPROVAL, IncidentStatus.ESCALATED).value
+            incident["_rejected_by"] = approver
+            persist_incidents()
             from app.orchestration.archive import enqueue_archive
-            enqueue_archive(updated)
+            enqueue_archive(incident)
         except ValueError as exc:
             raise as_http_error(exc) from exc
-        return {"incident_id": incident_id, "status": updated["status"], "approved": False}
+        return {"incident_id": incident_id, "status": incident["status"], "approved": False}
 
 
 @router.post("/{incident_id}/archive/retry")
@@ -111,15 +110,15 @@ def retry_archive(incident_id: str, authorization: str | None = Header(default=N
                   x_nexus_approver_token: str | None = Header(default=None),
                   x_nexus_approver: str | None = Header(default="operator")):
     approver = verify_approver_auth(authorization, x_nexus_approver_token, x_nexus_approver)
-    with lock_for(incident_id):
+    with lock_for(incident_id, timeout=5.0):
         incident = find_incident(incident_id)
         if incident is None:
-            raise HTTPException(404, "Incident not found")
+            raise _not_found()
         from app.orchestration.archive import enqueue_archive
         enqueue_archive(incident)
         job = incident.get("_archive_outbox")
         if job is None:
-            raise HTTPException(409, incident.get("_archive_blocked_reason", "Incident has no terminal archive outcome"))
+            raise api_error(409, "conflict", incident.get("_archive_blocked_reason", "Incident has no terminal archive outcome"))
         if job["status"] != "DELIVERED":
             job.update(status="PENDING", next_attempt_at=datetime.now(timezone.utc).isoformat(), last_error=None)
             persist_incidents()
@@ -129,7 +128,16 @@ def retry_archive(incident_id: str, authorization: str | None = Header(default=N
 
 class ReconciliationRequest(BaseModel):
     outcome: Literal["CONFIRMED", "FAILED"]
-    note: str = ""
+    evidence: str = Field(min_length=10, max_length=2000,
+                          description="What the operator observed (e.g. rollout history, live pod versions)")
+    note: str = Field(default="", max_length=2000)
+
+    @field_validator("evidence")
+    @classmethod
+    def meaningful(cls, value):
+        if not value.strip():
+            raise ValueError("Reconciliation evidence must describe what was observed")
+        return value.strip()
 
 
 @router.post("/{incident_id}/reconcile", response_model=IncidentView)
@@ -138,63 +146,14 @@ def reconcile_incident(
     request: ReconciliationRequest,
     authorization: str | None = Header(default=None),
     x_nexus_approver_token: str | None = Header(default=None),
-    x_nexus_approver: str | None = Header(default="operator"),
+    x_nexus_approver: str | None = Header(default=None),
 ):
-    approver = verify_approver_auth(authorization, x_nexus_approver_token, x_nexus_approver)
-    with incident_operation(incident_id):
-        incident = find_incident(incident_id)
-        if incident is None:
-            raise HTTPException(status_code=404, detail="Incident not found")
-        if not incident.get("_execution_ambiguous") and incident["status"] != IncidentStatus.ESCALATED.value:
-            raise HTTPException(status_code=409, detail="Only ambiguous or escalated incidents can be reconciled")
-        intent = incident.pop("_execution_intent", None) or {}
-        incident.pop("_execution_ambiguous", None)
-        incident.pop("_execution_reconciliation_reason", None)
-        now = datetime.now(timezone.utc)
-        now_iso = now.isoformat()
-        action_id = intent.get("action_id") or ("ACT-" + uuid4().hex)
-        raw_action = intent.get("action") or incident.get("proposed_action") or "ROLLBACK"
-        action_val = "SCALE" if raw_action == "SCALE" else "ROLLBACK"
-        if request.outcome == "CONFIRMED":
-            incident["action_completed_at"] = now_iso
-            incident["recovery_deadline_at"] = (now + timedelta(seconds=360)).isoformat()
-            incident["_action_result"] = ActionResult(
-                action_id=action_id,
-                incident_id=incident_id,
-                action=action_val,
-                status="SUCCESS",
-                started_at=intent.get("started_at") or now_iso,
-                completed_at=now_iso,
-            ).model_dump(mode="json")
-            incident["_execution_result"] = {
-                "action": action_val,
-                "success": True,
-                "message": f"Operator reconciled: {request.note or 'Rollout confirmed manually'}",
-            }
-            add_audit_record(incident_id, "MANUAL_RECONCILIATION_CONFIRMED", {
-                "approver": approver, "note": request.note, "outcome": "CONFIRMED",
-            })
-            update_incident_status(incident_id, IncidentStatus.VALIDATING, reconciled=True)
-        else:
-            incident["_action_result"] = ActionResult(
-                action_id=action_id,
-                incident_id=incident_id,
-                action=action_val,
-                status="FAILED",
-                started_at=intent.get("started_at") or now_iso,
-                completed_at=now_iso,
-            ).model_dump(mode="json")
-            incident["_execution_result"] = {
-                "action": action_val,
-                "success": False,
-                "message": f"Operator reconciled: {request.note or 'Rollout aborted manually'}",
-            }
-            add_audit_record(incident_id, "MANUAL_RECONCILIATION_FAILED", {
-                "approver": approver, "note": request.note, "outcome": "FAILED",
-            })
-            from app.orchestration.archive import enqueue_archive
-            enqueue_archive(incident)
-            persist_incidents()
-        from app.api.incidents import public_incident
-        return public_incident(incident)
-
+    verify_approver_auth(authorization, x_nexus_approver_token, x_nexus_approver or "operator")
+    operator = require_explicit_identity(x_nexus_approver)
+    if find_incident(incident_id) is None:
+        raise _not_found()
+    try:
+        incident = reconcile_execution(incident_id, request.outcome, operator, request.evidence, request.note)
+    except ValueError as exc:
+        raise as_http_error(exc) from exc
+    return public_incident(incident)
