@@ -76,6 +76,7 @@ services:
     environment:
       SERVICE_NAME: finops-engine
       M1_TELEMETRY_BASE_URL: http://telemetry-intelligence:8001
+      NEXUS_SERVICES_CONFIG: /app/config/services.yaml
       DATABASE_URL: postgresql://nexus:${NEXUS_DB_PASSWORD}@postgres:5432/nexus
       # Compose has no Kubernetes requests; these are explicit demo sizing inputs.
       FINOPS_CPU_REQUEST_M: "100"
@@ -116,6 +117,11 @@ services:
       M5_MEMORY_BASE_URL: http://incident-memory:8005
       DATABASE_URL: postgresql://nexus:${NEXUS_DB_PASSWORD}@postgres:5432/nexus
       NEXUS_APPROVAL_TOKEN: ${NEXUS_APPROVAL_TOKEN:?Set NEXUS_APPROVAL_TOKEN}
+      # Service credential for incident ingest and diagnosis (must differ from the approval token).
+      NEXUS_INGEST_TOKEN: ${NEXUS_INGEST_TOKEN:?Set NEXUS_INGEST_TOKEN}
+      NEXUS_SERVICES_CONFIG: /app/config/services.yaml
+      M4_WORKER_CONCURRENCY: "4"
+      M4_PROPOSAL_TTL_SECONDS: "300"
       # Compose verifies real data integration; actual actions use the isolated Kubernetes stack.
       REMEDIATION_BACKEND: mock
       RECOVERY_TIMEOUT_SECONDS: "360"
@@ -133,7 +139,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/ready', timeout=5)"]
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/ready', timeout=8)"]
       interval: 20s
       timeout: 10s
       retries: 10
@@ -257,6 +263,11 @@ services:
       M1_TELEMETRY_BASE_URL: http://telemetry-intelligence:8001
       M2_POLL_INTERVAL_S: "15"
       M2_EVIDENCE_PATH: /data/evidence.jsonl
+      NEXUS_INGEST_TOKEN: ${NEXUS_INGEST_TOKEN:?Set NEXUS_INGEST_TOKEN}
+      M2_ASYNC_DISPATCH: "true"
+      M2_DISPATCH_QUEUE_SIZE: "256"
+      M2_DISPATCH_WORKERS: "2"
+      M2_DISPATCH_SWEEP_S: "5"
     ports:
       - "8002:8002"
     cpus: 0.5
@@ -293,6 +304,8 @@ services:
       M5_REJECT_PATH: /api/incidents/{incident_id}/reject
       M5_SHARED_API_TOKEN: ${NEXUS_APPROVAL_TOKEN:?Set NEXUS_APPROVAL_TOKEN}
       M5_OPERATOR_ID: ${M5_OPERATOR_ID:?Set M5_OPERATOR_ID}
+      # Operator boundary for decisions in the browser: a token typed per decision.
+      M5_UI_OPERATOR_TOKEN: ${M5_UI_OPERATOR_TOKEN:?Set M5_UI_OPERATOR_TOKEN}
     ports:
       - "127.0.0.1:8005:8005"
     cpus: 0.5

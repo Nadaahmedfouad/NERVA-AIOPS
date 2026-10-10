@@ -54,6 +54,11 @@ spec:
                 secretKeyRef:
                   name: nexus-runtime
                   key: M5_OPERATOR_ID
+            - name: M5_UI_OPERATOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-runtime
+                  key: M5_UI_OPERATOR_TOKEN
           resources:
             requests:
               cpu: 100m

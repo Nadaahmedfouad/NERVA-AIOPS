@@ -98,6 +98,15 @@ spec:
                 secretKeyRef:
                   name: nexus-runtime
                   key: NEXUS_APPROVAL_TOKEN
+            - name: NEXUS_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-runtime
+                  key: NEXUS_INGEST_TOKEN
+            - name: NEXUS_SERVICES_CONFIG
+              value: /app/config/services.yaml
+            - name: M4_WORKER_CONCURRENCY
+              value: "4"
             - name: M5_MEMORY_BASE_URL
               value: http://incident-memory:8005
             - name: M4_AUTO_VALIDATE_RECOVERY
@@ -115,9 +124,12 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 8
           livenessProbe:
+            # /live has no dependency I/O: a database or M3 outage never restarts the pod,
+            # but a lost writer lease does.
             httpGet:
-              path: /health
+              path: /live
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10

@@ -31,6 +31,8 @@ spec:
               value: development
             - name: M1_TELEMETRY_BASE_URL
               value: http://telemetry-intelligence:8001
+            - name: NEXUS_SERVICES_CONFIG
+              value: /app/config/services.yaml
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

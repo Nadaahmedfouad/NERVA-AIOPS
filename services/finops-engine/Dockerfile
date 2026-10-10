@@ -5,6 +5,8 @@ COPY services/finops-engine/requirements.txt services/finops-engine/requirements
 RUN pip install --no-cache-dir -r services/finops-engine/requirements.txt
 
 COPY shared shared
+COPY config config
+ENV NEXUS_SERVICES_CONFIG=/app/config/services.yaml
 COPY services/finops-engine services/finops-engine
 COPY services/shared-nexus-api/app/db services/shared-nexus-api/app/db
 

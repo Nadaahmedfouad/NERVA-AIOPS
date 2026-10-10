@@ -5,6 +5,7 @@ param(
     [string]$OutputDirectory = '.review-branches/integration-results',
     [switch]$Approve,
     [string]$ApprovalToken = $env:NEXUS_APPROVAL_TOKEN,
+    [string]$IngestToken = $env:NEXUS_INGEST_TOKEN,
     [string]$Approver = 'mugalal',
     [string]$RunId,
     [ValidateSet('bad_deployment', 'traffic_spike')][string]$Scenario,
@@ -19,6 +20,9 @@ $incidentRoute = [Uri]::EscapeDataString($IncidentId)
 $anomaly = Get-Content -LiteralPath $AnomalyPath -Raw | ConvertFrom-Json
 if (-not $anomaly.anomaly_id -or -not $anomaly.service -or -not $anomaly.timestamp) {
     throw 'AnomalyPath must contain an actual AnomalyEvent with ID, service and timestamp.'
+}
+if ([string]::IsNullOrWhiteSpace($IngestToken)) {
+    throw 'Set NEXUS_INGEST_TOKEN: M4 requires the ingest token to create incidents, link anomalies and diagnose.'
 }
 if ($Approve -and [string]::IsNullOrWhiteSpace($ApprovalToken)) {
     throw 'Set NEXUS_APPROVAL_TOKEN before requesting approval.'
@@ -44,11 +48,16 @@ function Save-Result([string]$Name, $Value) {
     $Value | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath (Join-Path $output $Name) -Encoding utf8
 }
 
-function Send-Json([string]$Path, $Body) {
+# Ingest (service) and operator credentials are separate; each call uses only its own.
+function Send-Json([string]$Path, $Body, [hashtable]$ExtraHeaders = @{}, [switch]$AsOperator) {
     $parameters = @{ Method = 'Post'; Uri = "$M4Url$Path"; ContentType = 'application/json'; TimeoutSec = 180 }
-    if ($ApprovalToken) {
-        $parameters.Headers = @{ Authorization = "Bearer $ApprovalToken"; 'X-Nexus-Approver' = $Approver }
+    if ($AsOperator) {
+        $headers = @{ Authorization = "Bearer $ApprovalToken"; 'X-Nexus-Approver' = $Approver }
+    } else {
+        $headers = @{ Authorization = "Bearer $IngestToken"; 'X-Nexus-Sender' = 'operator-integration-script' }
     }
+    foreach ($key in $ExtraHeaders.Keys) { $headers[$key] = $ExtraHeaders[$key] }
+    $parameters.Headers = $headers
     if ($null -ne $Body) { $parameters.Body = $Body | ConvertTo-Json -Depth 30 }
     Invoke-RestMethod @parameters
 }
@@ -69,12 +78,17 @@ if ($RunId) {
         $registration.injection_time = ([DateTimeOffset]$InjectionTime).ToUniversalTime().ToString('o')
         $registration.injection_evidence = $InjectionEvidence
     }
-    Save-Result 'experiment.json' (Send-Json "/api/incidents/$incidentRoute/experiment" $registration)
+    Save-Result 'experiment.json' (Send-Json "/api/incidents/$incidentRoute/experiment" $registration -AsOperator)
 }
 $decision = Send-Json "/internal/decisions/build/$incidentRoute" $null
 Save-Result 'decision.json' $decision
-$proposal = Invoke-RestMethod "$M4Url/api/incidents/$incidentRoute/proposal"
+$proposalResponse = Invoke-WebRequest -UseBasicParsing "$M4Url/api/incidents/$incidentRoute/proposal"
+$proposal = $proposalResponse.Content | ConvertFrom-Json
+# The approval must name exactly this reviewed proposal; M4 rejects a stale digest.
+$proposalDigest = [string]$proposalResponse.Headers['X-Proposal-Digest']
+if ($proposalDigest -notmatch '^[0-9a-f]{64}$') { throw 'M4 did not return the proposal digest header.' }
 Save-Result 'proposal.json' $proposal
+Set-Content -LiteralPath (Join-Path $output 'proposal-digest.txt') -Value $proposalDigest -Encoding ascii
 $proposal | Format-List
 if ($proposal.recommended_action -eq 'ESCALATE') { throw 'Incident escalated; inspect the saved decision and service evidence.' }
 if (-not $Approve) {
@@ -82,7 +96,7 @@ if (-not $Approve) {
     return
 }
 
-$action = Send-Json "/api/incidents/$incidentRoute/approve" $null
+$action = Send-Json "/api/incidents/$incidentRoute/approve" $null @{ 'X-Proposal-Digest' = $proposalDigest } -AsOperator
 Save-Result 'action.json' $action
 if ($action.status -ne 'SUCCESS') { throw 'Remediation failed; inspect the action result.' }
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($RecoveryTimeoutSeconds)

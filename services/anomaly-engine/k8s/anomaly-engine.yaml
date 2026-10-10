@@ -39,6 +39,17 @@ spec:
               value: http://telemetry-intelligence:8001
             - name: M2_EVIDENCE_PATH
               value: /data/evidence.jsonl
+            - name: NEXUS_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-runtime
+                  key: NEXUS_INGEST_TOKEN
+            - name: M2_ASYNC_DISPATCH
+              value: "true"
+            - name: M2_DISPATCH_QUEUE_SIZE
+              value: "256"
+            - name: M2_DISPATCH_WORKERS
+              value: "2"
           volumeMounts:
             - name: evidence
               mountPath: /data

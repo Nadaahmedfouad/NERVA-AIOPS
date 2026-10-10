@@ -47,7 +47,9 @@ For Kubernetes, omit that exception and supply the forwarded module URLs.
 
 The isolated `nexus-demo` namespace needs a privately created `nexus-runtime`
 Secret containing `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`,
-`NEXUS_APPROVAL_TOKEN` and `M5_OPERATOR_ID`. Never commit the Secret. `DATABASE_URL`
+`NEXUS_APPROVAL_TOKEN`, `NEXUS_INGEST_TOKEN` (M2 -> M4 ingest; must differ from the
+approval token), `M5_UI_OPERATOR_TOKEN` (typed by the operator for each dashboard
+decision) and `M5_OPERATOR_ID`. Never commit the Secret. `DATABASE_URL`
 uses the `postgres:5432` Service hostname. Apply dependencies in this order:
 
 Build a single-platform local PostgreSQL image and import that exact tag before

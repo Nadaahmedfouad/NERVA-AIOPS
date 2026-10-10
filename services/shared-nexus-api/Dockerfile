@@ -10,7 +10,9 @@ COPY services/shared-nexus-api/install_kubectl.py /tmp/install_kubectl.py
 RUN python /tmp/install_kubectl.py
 COPY services/shared-nexus-api/app ./app
 COPY shared /app/shared
+COPY config /app/config
 ENV PYTHONPATH=/app
+ENV NEXUS_SERVICES_CONFIG=/app/config/services.yaml
 COPY mocks /app/mocks
 
 RUN useradd --uid 10001 --create-home nexus && mkdir -p /data && chown -R nexus:nexus /data /app
