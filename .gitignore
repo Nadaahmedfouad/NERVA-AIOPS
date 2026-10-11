@@ -21,3 +21,5 @@ services/telemetry-intelligence/data/
 
 .pytest_cache/
 *.egg-info/
+/data/
+/scratch/
