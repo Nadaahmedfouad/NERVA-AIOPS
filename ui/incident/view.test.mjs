@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {renderIncident, renderFinops} from './view.js';
+import {renderIncident, renderFinops, lifecycle} from './view.js';
+import {sortIncidents} from '../overview/view.js';
 import {renderAnswer, answerLabel} from '../copilot/view.js';
 
 class Node {
@@ -97,4 +98,26 @@ test('external-model answers are labelled apart from deterministic grounded answ
   assert.equal(answerLabel({mode:'offline_fallback'}),'Deterministic recorded answer');
   const box=renderAnswer({mode:'deterministic_grounded',status:'insufficient_evidence',answer:'NEXUS does not have enough recorded evidence.',citations:[]});
   assert.match(text(box),/nothing was inferred/);
+});
+
+test('lifecycle never marks unrecorded action, recovery or archive as done',()=>{
+  const stages=Object.fromEntries(lifecycle(base).map(([name,state,detail])=>[name,{state,detail}]));
+  assert.equal(stages.Decide.state,'current');assert.equal(stages.Act.state,'missing');
+  assert.equal(stages.Recover.state,'missing');assert.equal(stages.Recover.detail,'Not measured');assert.equal(stages.Learn.state,'missing');
+  const failed=Object.fromEntries(lifecycle({...base,incident:{...base.incident,status:'RESOLVED'},action_result:{status:'FAILED'},recovery_result:{recovered:false}}).map(([n,s])=>[n,s]));
+  assert.equal(failed.Act,'failed');assert.equal(failed.Recover,'failed');
+  assert.equal(Object.fromEntries(lifecycle({...base,workflow:{execution_ambiguous:true}}).map(([n,s])=>[n,s])).Act,'failed');
+});
+test('incident summary states the next step and the Copilot hand-off is a link, not a decision button',()=>{
+  let asked=false;
+  renderIncident(base,{approval_enabled:true},()=>{},()=>{},()=>asked=true);
+  assert.match(text(roots['#incident-body']),/waiting for your decision/);
+  const [link]=find(roots['#incident-body'],'a');link.listeners.click({preventDefault(){}});assert.equal(asked,true);
+  renderIncident({...base,incident:{...base.incident,status:'RESOLVED'}},{approval_enabled:true},()=>{},()=>{});
+  assert.match(text(roots['#incident-body']),/no successful recovery measurement is recorded/);
+});
+test('overview puts incidents awaiting a decision first, then open, then resolved',()=>{
+  const rows=[{incident_id:'R',status:'RESOLVED',started_at:'2026-10-10T09:00:00Z'},{incident_id:'O',status:'VALIDATING',started_at:'2026-10-10T07:00:00Z'},
+    {incident_id:'A',status:'AWAITING_APPROVAL',started_at:'2026-10-10T06:00:00Z'},{incident_id:'O2',status:'DETECTED',started_at:'2026-10-10T08:00:00Z'}];
+  assert.deepEqual(sortIncidents(rows).map(r=>r.incident_id),['A','O2','O','R']);
 });

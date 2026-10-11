@@ -37,6 +37,13 @@ export class ChatStore {
     this.activeId = id;
     this.save();
   }
+  // Deleting the open chat falls back to the most recent remaining one, or a fresh chat.
+  remove(id) {
+    this.sessions = this.sessions.filter(chat => chat.id !== id);
+    if (this.activeId === id) this.activeId = [...this.sessions].sort((a, b) => b.updated_at - a.updated_at)[0]?.id;
+    if (!this.active) this.create();
+    else this.save();
+  }
   history(chat = this.active) {
     return chat.turns.filter(turn => turn.result && turn.result.status !== 'ai_unavailable')
       .flatMap(turn => [{role: 'user', content: turn.question},

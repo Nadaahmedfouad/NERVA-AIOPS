@@ -55,3 +55,16 @@ test('page and selected incident survive refresh; malformed/unavailable storage 
   assert.equal(unavailable.sessions.length, 2);
   assert.ok(errors.length > 0);
 });
+
+test('deleting a chat keeps the others and always leaves an open chat', () => {
+  const browser = storage(), store = new ChatStore(browser, 'mock');
+  const first = store.active;
+  first.turns.push({question: 'Keep me', result: result('Kept')});
+  const second = store.create('INC-001');
+  store.remove(second.id);
+  assert.equal(store.activeId, first.id);
+  assert.deepEqual(new ChatStore(browser, 'mock').sessions.map(chat => chat.id), [first.id]);
+  store.remove(first.id);
+  assert.equal(store.sessions.length, 1);
+  assert.equal(store.active.turns.length, 0);
+});

@@ -2,7 +2,7 @@
 
 The Copilot now has incident listing/filtering, named lookup, memory search, live-health adapters and reviewable action-request tools. See `docs/M5_COPILOT_TOOLS.md` for capabilities, limitations and integration settings.
 
-The Copilot UI uses `POST /internal/copilot/chat` for open-ended messages and follow-ups. The six buttons are optional conversation starters. Previous turns are carried in `history` (up to 20 messages per conversation). Browser local storage saves conversations, full answers/citations/tool results, unsent text, active chat, selected incident and current page. Saved chats appear in navigation with titles from their first question. New chat starts a separate conversation without deleting previous ones; clicking a saved chat reopens it. Refresh and visiting other pages preserve the chat. Each started conversation retains its incident context even when the Incident Center selection changes; a new chat uses the current selection.
+The Copilot UI uses `POST /internal/copilot/chat` for open-ended messages and follow-ups. The six buttons are optional conversation starters. Previous turns are carried in `history` (up to 20 messages per conversation). Browser local storage saves conversations, full answers/citations/tool results, unsent text, active chat, selected incident and current page. Saved chats appear in navigation with titles from their first question. New chat starts a separate conversation without deleting previous ones; clicking a saved chat reopens it. Refresh and visiting other pages preserve the chat. Each started conversation retains its incident context even when the Incident Center selection changes; a new chat uses the current selection. When the Incident Center selection differs from a started chat's incident, Copilot offers "Start a new chat about <incident>"; "Ask Copilot about this incident" on the incident summary does the same. The × beside a saved chat deletes it from this browser (after confirmation when it has messages).
 
 Mock and real conversations use separate browser storage keys. Chats are saved only in this browser and origin, not in PostgreSQL or an account; another device/browser/port will not share them, and clearing site data removes them. Storage failures are reported explicitly while the current visit remains usable. Interrupted model replies are not replayed automatically. Accepted, declined and uncertain action decisions persist with disabled controls, preventing refresh from resending them. Pending server drafts still expire after ten minutes or a service restart.
 
@@ -14,7 +14,7 @@ Set backend environment variables before starting M5, or use Uvicorn's `--env-fi
 
 ```text
 M5_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
-M5_LLM_MODEL=gemini-3.8-flash
+M5_LLM_MODEL=gemini-3.5-flash-lite
 M5_LLM_API_KEY=<your Gemini API key>
 ```
 

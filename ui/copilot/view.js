@@ -1,4 +1,4 @@
-import {api, element, panel, fields} from '../components/render.js?v=20261010-chats';
+import {api, element, panel, fields} from '../components/render.js';
 export const questions=['Show me all incidents','Show unresolved incidents','Which services are unhealthy?','What is the root cause?','Have we seen this before?','Did it work?'];
 let operatorAuth='disabled';
 export function setOperatorAuth(mode){operatorAuth=mode||'disabled';}
