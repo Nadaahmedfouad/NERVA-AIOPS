@@ -48,6 +48,11 @@ $env:NEXUS_APPROVAL_TOKEN = $taskRuntime.NEXUS_APPROVAL_TOKEN
 $env:M5_OPERATOR_ID = $taskRuntime.M5_OPERATOR_ID
 $env:NEXUS_INGEST_TOKEN = $taskRuntime.NEXUS_INGEST_TOKEN
 $env:M5_UI_OPERATOR_TOKEN = $taskRuntime.M5_UI_OPERATOR_TOKEN
+if ($env:GEMINI_API_KEY) { $taskRuntime.GEMINI_API_KEY = $env:GEMINI_API_KEY }
+if (-not $taskRuntime.GEMINI_API_KEY -and (Test-Path env:GEMINI_API_KEY)) { $taskRuntime | Add-Member -NotePropertyName GEMINI_API_KEY -NotePropertyValue $env:GEMINI_API_KEY -Force }
+if ($taskRuntime.GEMINI_API_KEY) { $env:GEMINI_API_KEY = $taskRuntime.GEMINI_API_KEY }
+$env:M5_LLM_MODEL = if ($env:M5_LLM_MODEL) { $env:M5_LLM_MODEL } else { 'gemini-3.5-flash' }
+$taskRuntime.M5_LLM_MODEL = $env:M5_LLM_MODEL
 
 $taskArgs = @('compose', '-f', $taskCompose, '--profile', 'integration', 'up', '--detach', '--wait', '--wait-timeout', '300')
 if (-not $NoBuild) { $taskArgs += '--build' }

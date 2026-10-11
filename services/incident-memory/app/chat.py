@@ -25,6 +25,16 @@ class GeneratedAnswer(Model):
     evidence_ids: list[str] = Field(max_length=30)
 
 
+def parse_answer(raw_content: str | None) -> GeneratedAnswer:
+    if not raw_content:
+        raise ValueError("Empty model content")
+    text = raw_content.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    return GeneratedAnswer.model_validate_json(text)
+
+
 SYSTEM = """You are NEXUS, a conversational AIOps assistant. Answer any operational
 question naturally, including follow-ups, comparisons, explanations and troubleshooting.
 Use the user's language. Do not restrict users to predefined questions.
@@ -216,8 +226,8 @@ def chat(repository, request, client=None, provider=None, drafts=None):
                 if not tool_calls:
                     try:
                         if choice.get("finish_reason") == "stop":
-                            return GeneratedAnswer.model_validate_json(choice["message"].get("content"))
-                    except (ValidationError, TypeError):
+                            return parse_answer(choice["message"].get("content"))
+                    except (ValidationError, TypeError, ValueError):
                         pass
                     break
                 if len(tool_calls) > 4 or len(result["tool_results"]) + len(tool_calls) > 8:
@@ -247,7 +257,7 @@ def chat(repository, request, client=None, provider=None, drafts=None):
             choice = complete(False)
             if choice.get("finish_reason") != "stop" or choice["message"].get("refusal"):
                 raise ValueError("Incomplete or refused model output")
-            return GeneratedAnswer.model_validate_json(choice["message"]["content"])
+            return parse_answer(choice["message"]["content"])
         if client is None:
             with httpx.Client() as connection:
                 generated = generate(connection)
@@ -264,17 +274,19 @@ def chat(repository, request, client=None, provider=None, drafts=None):
             )
         if any(key not in evidence for key in generated.evidence_ids):
             raise ValueError("Unknown evidence reference")
-        if generated.kind in {"incident_answer", "system_answer", "action_request"} and not generated.evidence_ids:
+        if generated.kind in {"incident_answer", "action_request"} and not generated.evidence_ids:
             raise ValueError("Incident answer without evidence")
+        if generated.kind == "system_answer" and not generated.evidence_ids:
+            generated.kind = "general_guidance"
         if generated.kind == "general_guidance" and generated.evidence_ids:
-            raise ValueError("General guidance with incident references")
+            generated.evidence_ids = []
         result.update(answer=generated.answer, kind=generated.kind,
                       citations=[evidence[key] for key in dict.fromkeys(generated.evidence_ids)])
         if generated.kind == "insufficient_evidence":
             result["status"] = "insufficient_evidence"
         return result
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, ValidationError) as exc:
-        logger.warning("copilot generation failed", extra={"failure_type": type(exc).__name__})
+        logger.warning(f"copilot generation failed: {exc}", extra={"failure_type": type(exc).__name__})
         # Do not expose provider error bodies, credentials or malformed output.
         fallback = answer(repository, request)
         fallback.update(tool_results=result["tool_results"], action_requests=result["action_requests"])

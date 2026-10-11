@@ -308,6 +308,9 @@ services:
       M5_OPERATOR_ID: ${M5_OPERATOR_ID:?Set M5_OPERATOR_ID}
       # Operator boundary for decisions in the browser: a token typed per decision.
       M5_UI_OPERATOR_TOKEN: ${M5_UI_OPERATOR_TOKEN:?Set M5_UI_OPERATOR_TOKEN}
+      M5_LLM_API_KEY: ${M5_LLM_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      M5_LLM_MODEL: ${M5_LLM_MODEL:-gemini-3.5-flash}
     ports:
       - "127.0.0.1:8005:8005"
     cpus: 0.5
