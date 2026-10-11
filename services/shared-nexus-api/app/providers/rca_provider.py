@@ -12,7 +12,7 @@ RCA_PROVIDER = os.getenv("RCA_PROVIDER", "real").lower()
 M3_RCA_URL = os.getenv("M3_RCA_URL", os.getenv("M3_RCA_BASE_URL", "http://localhost:8003").rstrip("/") + "/internal/rca/analyze")
 
 _breaker = Breaker(threshold=5, cooldown=30.0)
-_session = make_session(retry_post=True)
+_session = make_session(retry_post=False)
 
 
 def get_rca_result(incident_id: str | None = None):
@@ -24,17 +24,26 @@ def get_rca_result(incident_id: str | None = None):
         if not incident_id:
             raise ValueError("incident_id is required when using real M3 RCA provider")
         try:
-            response = resilient_call(_breaker, _session, "POST", M3_RCA_URL, json={"incident_id": incident_id}, timeout=10)
+            response = resilient_call(_breaker, _session, "POST", M3_RCA_URL, json={"incident_id": incident_id}, timeout=10, inspect_nonretryable=True)
         except CircuitOpen as exc:
             raise IntegrationError("M3 RCA circuit is open", status_code=503, retryable=True) from exc
         except requests.RequestException as exc:
             raise IntegrationError("M3 RCA is unavailable", status_code=503, retryable=True) from exc
         if response.status_code != 200:
             is_client_error = 400 <= response.status_code < 500
+            retryable = not is_client_error
+
+            try:
+                detail = response.json().get("detail", {})
+                if isinstance(detail, dict) and isinstance(detail.get("retryable"), bool):
+                    retryable = detail["retryable"]
+            except (ValueError, AttributeError):
+                pass
+
             raise IntegrationError(
                 f"M3 RCA request failed with status {response.status_code}",
                 status_code=response.status_code if is_client_error else 503,
-                retryable=not is_client_error,
+                retryable=retryable,
             )
         try:
             data = response.json()

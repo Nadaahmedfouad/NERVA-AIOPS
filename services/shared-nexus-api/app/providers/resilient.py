@@ -84,16 +84,38 @@ def set_transport(transport=None):
     _transport = transport
 
 
-def resilient_call(breaker: Breaker, session: requests.Session, method: str, url: str, **kwargs) -> requests.Response:
-    """Execute an HTTP request protected by circuit breaker and retry session."""
+def resilient_call(
+    breaker: Breaker,
+    session: requests.Session,
+    method: str,
+    url: str,
+    *,
+    inspect_nonretryable: bool = False,
+    **kwargs,
+) -> requests.Response:
     if _transport is not None:
         return _transport(method, url, **kwargs)
+
     if not breaker.allow():
         raise CircuitOpen(f"Circuit open for {url}")
+
     try:
         response = session.request(method, url, **kwargs)
     except BaseException:
         breaker.record(False)
         raise
-    breaker.record(response.status_code < 500)
+
+    nonretryable = False
+
+    if inspect_nonretryable and response.status_code >= 500:
+        try:
+            detail = response.json().get("detail", {})
+            nonretryable = (
+                isinstance(detail, dict)
+                and detail.get("retryable") is False
+            )
+        except (ValueError, AttributeError):
+            pass
+
+    breaker.record(response.status_code < 500 or nonretryable)
     return response

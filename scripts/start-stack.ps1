@@ -52,7 +52,11 @@ if ($env:GEMINI_API_KEY) { $taskRuntime.GEMINI_API_KEY = $env:GEMINI_API_KEY }
 if (-not $taskRuntime.GEMINI_API_KEY -and (Test-Path env:GEMINI_API_KEY)) { $taskRuntime | Add-Member -NotePropertyName GEMINI_API_KEY -NotePropertyValue $env:GEMINI_API_KEY -Force }
 if ($taskRuntime.GEMINI_API_KEY) { $env:GEMINI_API_KEY = $taskRuntime.GEMINI_API_KEY }
 $env:M5_LLM_MODEL = if ($env:M5_LLM_MODEL) { $env:M5_LLM_MODEL } else { 'gemini-3.5-flash-lite' }
-$taskRuntime.M5_LLM_MODEL = $env:M5_LLM_MODEL
+
+$taskRuntime | Add-Member `
+    -NotePropertyName M5_LLM_MODEL `
+    -NotePropertyValue $env:M5_LLM_MODEL `
+    -Force
 
 $taskArgs = @('compose', '-f', $taskCompose, '--profile', 'integration', 'up', '--detach', '--wait', '--wait-timeout', '300')
 if (-not $NoBuild) { $taskArgs += '--build' }

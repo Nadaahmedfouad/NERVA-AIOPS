@@ -81,17 +81,30 @@ def _diagnose(identity):
     from app.api.incidents import find_incident, lock_for, persist_incidents
     from app.orchestration.orchestrator import build_decision
     from app.providers.errors import IntegrationError
+
     try:
         build_decision(identity)
     except (IntegrationError, ValueError) as exc:
+        retryable = getattr(exc, "retryable", False)
         retry = _setting("M4_DIAGNOSIS_RETRY_SECONDS", 15, 1, 600)
+
         with lock_for(identity):
             incident = find_incident(identity)
+
             if incident is not None and incident.get("_diagnosis_pending"):
                 incident["_diagnosis_last_error"] = str(exc)
-                incident["_diagnosis_retry_at"] = (datetime.now(timezone.utc) + timedelta(seconds=retry)).isoformat()
-                persist_incidents()
+                incident.pop("_diagnosis_attempt", None)
 
+                if retryable:
+                    incident["_diagnosis_retry_at"] = (
+                        datetime.now(timezone.utc)
+                        + timedelta(seconds=retry)
+                    ).isoformat()
+                else:
+                    incident["_diagnosis_pending"] = False
+                    incident.pop("_diagnosis_retry_at", None)
+
+                persist_incidents()
 
 def _measure(identity):
     from app.api.incidents import find_incident, lock_for, persist_incidents

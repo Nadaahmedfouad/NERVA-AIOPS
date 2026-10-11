@@ -16,6 +16,37 @@ foreach ($taskModule in $taskServices.Keys) {
     try {
         $taskHealth = Invoke-RestMethod -Uri "$taskUrl/health" -TimeoutSec 20
         $taskAccept = $taskHealth.status -eq 'ok'
+        if ($taskModule -eq 'M1' -and $AllowMockActuator -and
+            $taskHealth.status -eq 'degraded' -and
+            $taskHealth.provider_mode -eq 'real') {
+
+            $deps = $taskHealth.dependencies
+
+            $requiredHealthy = @(
+                'evidence_storage',
+                'telemetry_provider',
+                'loki',
+                'payment_service',
+                'telemetry_data'
+            )
+
+            $allHealthy = $true
+
+            foreach ($name in $requiredHealthy) {
+                if ($deps.$name.status -ne 'ok') {
+                    $allHealthy = $false
+                }
+            }
+
+            $k8sUnavailable = (
+                $deps.kubernetes.status -eq 'degraded' -and
+                $deps.kubernetes.detail -match 'kubectl is not installed'
+            )
+
+            if ($allHealthy -and $k8sUnavailable) {
+                $taskAccept = $true
+            }
+}
         if ($taskModule -eq 'M4' -and $AllowMockActuator -and $taskHealth.remediation_backend -eq 'mock') {
             $taskModes = @($taskHealth.provider_modes.PSObject.Properties | ForEach-Object { $_.Value })
             $taskAccept = $taskHealth.status -eq 'degraded' -and $taskHealth.workflow_storage.durable -eq $true -and

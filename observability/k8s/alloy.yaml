@@ -134,7 +134,7 @@ spec:
           args:
             - run
             - --server.http.listen-addr=0.0.0.0:12345
-            - --storage.path=/var/lib/alloy/data
+            - --storage.path=/tmp/alloy-data
             - /etc/alloy/config.alloy
           env:
             - name: NODE_NAME
@@ -166,7 +166,7 @@ spec:
               mountPath: /var/log/pods
               readOnly: true
             - name: positions
-              mountPath: /var/lib/alloy/data
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /-/ready
@@ -188,6 +188,4 @@ spec:
             path: /var/log/pods
             type: Directory
         - name: positions
-          hostPath:
-            path: /var/lib/nexus-alloy
-            type: DirectoryOrCreate
+          emptyDir: {}
